@@ -20,6 +20,65 @@
 #include "doxygen.h"
 #include "config.h"
 
+static void writeDotDir(FTextStream &t, const DirDef *const dd, const bool isTruncated)
+{
+  const char *borderColor = nullptr;
+  if (isTruncated)
+  {
+    borderColor = "red";
+  }
+  else
+  {
+    borderColor = "black";
+  }
+
+  t << "  " << dd->getOutputFileBase() << " [shape=box, label=\"" << dd->shortName()
+      << "\", style=\"filled\", fillcolor=\"#eeeeff\"," << " pencolor=\"" << borderColor
+      << "\", URL=\"" << dd->getOutputFileBase() << Doxygen::htmlFileExtension << "\"];\n";
+}
+
+/**
+ * Writes directory or a cluster of directories.
+ *
+ * @todo add parameter for max number of nodes
+ * @param t is written to
+ * @param dd is checked to be a cluster by this function
+ * @param remainingDepth is a shrinking limit for recursion
+ */
+static void writeDotDirDepSubGraph(FTextStream &t, const DirDef *const dd,
+    QDict<DirDef> &dirsInGraph, const std::size_t remainingDepth)
+{
+  if (dd->isCluster())
+  {
+    if (remainingDepth > 0)
+    {
+      t << "  subgraph cluster" << dd->getOutputFileBase() << " {\n";
+      t << "    graph [ bgcolor=\"#eeeeff\", pencolor=\"black\", label=\"\"" << " URL=\""
+          << dd->getOutputFileBase() << Doxygen::htmlFileExtension << "\"];\n";
+      t << "    " << dd->getOutputFileBase() << " [shape=plaintext label=\"" << dd->shortName()
+          << "\"];\n";
+
+      // add nodes for sub directories
+      QListIterator<DirDef> sdi(dd->subDirs());
+      const DirDef *sdir;
+      for (sdi.toFirst(); (sdir = sdi.current()); ++sdi)
+      {
+        writeDotDirDepSubGraph(t, sdir, dirsInGraph, remainingDepth - 1);
+        dirsInGraph.insert(sdir->getOutputFileBase(), sdir);
+      }
+      t << "  }\n";
+    }
+    else
+    {
+      writeDotDir(t, dd, true);
+    }
+  }
+  else
+  {
+    writeDotDir(t, dd, false);
+  }
+}
+
 void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 {
   int fontSize = Config_getInt(DOT_FONTSIZE);
@@ -45,45 +104,7 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
     t << dd->parent()->getOutputFileBase() << Doxygen::htmlFileExtension;
     t << "\"]\n";
   }
-  if (dd->isCluster())
-  {
-    t << "  subgraph cluster" << dd->getOutputFileBase() << " {\n";
-    t << "    graph [ bgcolor=\"#eeeeff\", pencolor=\"black\", label=\"\""
-      << " URL=\"" << dd->getOutputFileBase() << Doxygen::htmlFileExtension 
-      << "\"];\n";
-    t << "    " << dd->getOutputFileBase() << " [shape=plaintext label=\"" 
-      << dd->shortName() << "\"];\n";
-
-    // add nodes for sub directories
-    QListIterator<DirDef> sdi(dd->subDirs());
-    const DirDef *sdir;
-    for (sdi.toFirst();(sdir=sdi.current());++sdi)
-    {
-      t << "    " << sdir->getOutputFileBase() << " [shape=box label=\"" 
-        << sdir->shortName() << "\"";
-      if (sdir->isCluster())
-      {
-        t << " color=\"red\"";
-      }
-      else
-      {
-        t << " color=\"black\"";
-      }
-      t << " fillcolor=\"white\" style=\"filled\"";
-      t << " URL=\"" << sdir->getOutputFileBase() 
-        << Doxygen::htmlFileExtension << "\"";
-      t << "];\n";
-      dirsInGraph.insert(sdir->getOutputFileBase(),sdir);
-    }
-    t << "  }\n";
-  }
-  else
-  {
-    t << "  " << dd->getOutputFileBase() << " [shape=box, label=\"" 
-      << dd->shortName() << "\", style=\"filled\", fillcolor=\"#eeeeff\","
-      << " pencolor=\"black\", URL=\"" << dd->getOutputFileBase() 
-      << Doxygen::htmlFileExtension << "\"];\n";
-  }
+  writeDotDirDepSubGraph(t, dd, dirsInGraph, 3); //! @todo use a parameter for the max depth
   if (dd->parent())
   {
     t << "  }\n";
