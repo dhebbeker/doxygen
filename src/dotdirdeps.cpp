@@ -24,7 +24,7 @@
 
 static std::size_t getMaxDirectoryDepth()
 {
-  return 3;  //! @todo use a parameter for the max depth
+  return 3;  //! @todo use a parameter for the max depth (see Config_getInt)
 }
 
 /**
@@ -41,6 +41,7 @@ static std::size_t getMaxDirectoryDepth()
  * This requires to know the maximum directory depth, which will be draw.
  *
  * A simpler method is to sequence through a altering color scheme.
+ * @endinternal
  */
 static QCString getDirectoryBackgroundColorCode(const std::size_t depthIndex)
 {
