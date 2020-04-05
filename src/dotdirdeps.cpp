@@ -20,6 +20,36 @@
 #include "doxygen.h"
 #include "config.h"
 
+
+
+static std::size_t getMaxDirectoryDepth()
+{
+  return 3;  //! @todo use a parameter for the max depth
+}
+
+/**
+ * returns a DOT color name according to the directory depth
+ * @param depthIndex any number
+ * @return
+ *
+ * @internal
+ * Ideally one would deduce a optimal color from both:
+ *
+ *  - the current directory depth and
+ *  - the maximum directory depth which will be drawn in the graph
+ *
+ * This requires to know the maximum directory depth, which will be draw.
+ *
+ * A simpler method is to sequence through a altering color scheme.
+ */
+static QCString getDirectoryBackgroundColorCode(const std::size_t depthIndex)
+{
+  constexpr auto colorSchemeName = "/pastel19/";
+  constexpr auto numberOfColorsInScheme = 9;
+  const auto colorIndex = QCString().setNum((depthIndex % numberOfColorsInScheme) + 1);
+  return colorSchemeName + colorIndex;
+}
+
 static void writeDotDir(FTextStream &t, const DirDef *const dd, const bool isTruncated)
 {
   const char *borderColor = nullptr;
@@ -33,8 +63,9 @@ static void writeDotDir(FTextStream &t, const DirDef *const dd, const bool isTru
   }
 
   t << "  " << dd->getOutputFileBase() << " [shape=box, label=\"" << dd->shortName()
-      << "\", style=\"filled\", fillcolor=\"#eeeeff\"," << " pencolor=\"" << borderColor
-      << "\", URL=\"" << dd->getOutputFileBase() << Doxygen::htmlFileExtension << "\"];\n";
+      << "\", style=\"filled\", fillcolor=\"" << getDirectoryBackgroundColorCode(dd->level()) << "\","
+      << " pencolor=\"" << borderColor << "\", URL=\"" << dd->getOutputFileBase()
+      << Doxygen::htmlFileExtension << "\"];\n";
 }
 
 /**
@@ -53,8 +84,9 @@ static void writeDotDirDepSubGraph(FTextStream &t, const DirDef *const dd,
     if (remainingDepth > 0)
     {
       t << "  subgraph cluster" << dd->getOutputFileBase() << " {\n";
-      t << "    graph [ bgcolor=\"#eeeeff\", pencolor=\"black\", label=\"\"" << " URL=\""
-          << dd->getOutputFileBase() << Doxygen::htmlFileExtension << "\"];\n";
+      t << "    graph [ bgcolor=\"" << getDirectoryBackgroundColorCode(dd->level())
+          << "\", pencolor=\"black\", label=\"\"" << " URL=\"" << dd->getOutputFileBase()
+          << Doxygen::htmlFileExtension << "\"];\n";
       t << "    " << dd->getOutputFileBase() << " [shape=plaintext label=\"" << dd->shortName()
           << "\"];\n";
 
@@ -98,13 +130,13 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
   if (dd->parent())
   {
     t << "  subgraph cluster" << dd->parent()->getOutputFileBase() << " {\n";
-    t << "    graph [ bgcolor=\"#ddddee\", pencolor=\"black\", label=\"" 
+    t << "    graph [ bgcolor=\"" << getDirectoryBackgroundColorCode(dd->parent()->level()) << "\", pencolor=\"black\", label=\""
       << dd->parent()->shortName() 
       << "\" fontname=\"" << fontName << "\", fontsize=\"" << fontSize << "\", URL=\"";
     t << dd->parent()->getOutputFileBase() << Doxygen::htmlFileExtension;
     t << "\"]\n";
   }
-  writeDotDirDepSubGraph(t, dd, dirsInGraph, 3); //! @todo use a parameter for the max depth
+  writeDotDirDepSubGraph(t, dd, dirsInGraph, getMaxDirectoryDepth());
   if (dd->parent())
   {
     t << "  }\n";
