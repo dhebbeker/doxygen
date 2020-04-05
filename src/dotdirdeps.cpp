@@ -162,6 +162,8 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
         //    shortName().data(),
         //    !usedDir->isParentOf(this)
         //    );
+        //! @todo consider adding used directories, which have a relation over more "generations"
+        //!       (grandparents, ...)
         if (dir!=usedDir && dir->parent()==usedDir->parent() && 
             !usedDir->isParentOf(dd))
           // include if both have the same parent (or no parent)
