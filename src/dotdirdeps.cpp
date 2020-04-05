@@ -196,6 +196,7 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
     for (udi.toFirst();(udir=udi.current());++udi) // foreach used dir
     {
       const DirDef *usedDir=udir->dir();
+      //! @todo fix relations: there are redundant ones now
       if ((dir!=dd || !udir->inherited()) &&     // only show direct dependencies for this dir
         (usedDir!=dd || !udir->inherited()) && // only show direct dependencies for this dir
         !usedDir->isParentOf(dir) &&             // don't point to own parent
