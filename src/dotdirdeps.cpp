@@ -47,7 +47,7 @@ In order to limit the complexity of the drawn graphs, the following limits are i
 - `max_successor_depth`: Maximum number of successor levels drawn.
 - `max_ancestor_depth`: Maximum number of ancestor levels drawn.
 
-The limits are specified relative to the global depth of the ON. They are applied on the global depth of each directory involved.
+The limits are specified relative to the global depth of the ON. They are applied on the global depth of each directory involved while determining successors or ancestors.
 
 These shall be parameterizable through the configuration.
 
@@ -55,7 +55,7 @@ edges
 -----
 
 ### §1
-The following directory dependencies are considered (not necessarily drawn):
+The following directory dependencies are considered (not necessarily drawn) in the first step:
 
  - all from of the ON
  - all from all successors of the ON
@@ -63,8 +63,11 @@ The following directory dependencies are considered (not necessarily drawn):
 ### §2
 From the set of the considered dependencies, each dependency shall be drawn as an edge in the graph from the node of the dependent directory to either:
 
- - the node representing the dependee (if drawn) or
+ - the node representing the dependee if not exceeding `max_successor_depth` else
  - the first ancestor of the dependee which is drawn
+
+### §6
+Now all dependencies between all nodes as a result from §5 2. shall be drawn as well. This simplifies a superficial analysis of circular dependencies.
 
 nodes
 -----
