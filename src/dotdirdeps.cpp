@@ -14,6 +14,7 @@
 */
 
 /**
+ * @file
  * @internal
 
 Designing Directory Dependency Graphs
@@ -23,9 +24,9 @@ terms
 -----
 
 - **original node** (ON) is the directory for which the directory dependency graph is drawn
-- **ancestor**s are all parents / sup-directories (*recursively*) of a directory
-- **successor**s are all children / sub-directories (*recursively*) of a directory
-- [**dependee**](https://en.wiktionary.org/wiki/dependee#Noun) as the directory which is depended upon
+- **ancestors** are all parents / sup-directories (*recursively*) of a directory
+- **successors** are all children / sub-directories (*recursively*) of a directory
+- **[dependee](https://en.wiktionary.org/wiki/dependee#Noun)** as the directory which is depended upon
 
 special formatting
 ------------------
@@ -77,7 +78,8 @@ The following directories shall be drawn as nodes in the graph:
   its ancestors while in limit `max_ancestor_depth`.
   If those are not in the set of (1.) or (2.) then they shall be marked as "incomplete".
 
-questions
+
+@todo questions
 ------------
 Shall the limits be applied relative to the ON or to each dependent and dependee on its own?
 
