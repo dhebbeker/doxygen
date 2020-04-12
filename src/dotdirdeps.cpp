@@ -117,8 +117,9 @@ static std::size_t getMaxDirectoryDepth()
 static QCString getDirectoryBackgroundColorCode(const std::size_t depthIndex)
 {
   constexpr auto colorSchemeName = "/pastel19/";
-  constexpr auto numberOfColorsInScheme = 9;
-  const auto colorIndex = QCString().setNum((depthIndex % numberOfColorsInScheme) + 1);
+  constexpr ulong numberOfColorsInScheme = 9;
+  const auto colorIndex = QCString().setNum(
+      static_cast<ulong>((depthIndex % numberOfColorsInScheme) + 1));
   return colorSchemeName + colorIndex;
 }
 
