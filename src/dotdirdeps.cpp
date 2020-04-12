@@ -13,6 +13,77 @@
 *
 */
 
+/**
+ * @internal
+
+Designing Directory Dependency Graphs
+=====================================
+
+terms
+-----
+
+- **original node** (ON) is the directory for which the directory dependency graph is drawn
+- **ancestor**s are all parents / sup-directories (*recursively*) of a directory
+- **successor**s are all children / sub-directories (*recursively*) of a directory
+- [**dependee**](https://en.wiktionary.org/wiki/dependee#Noun) as the directory which is depended upon
+
+special formatting
+------------------
+### §3
+Elements marked with the following classes shall be formatted distinctively. The formatting of the classes should be orthogonal / not exclusive.
+
+ - "incomplete"
+ - "truncated"
+ - "original"
+
+limits
+------
+
+### §4
+In order to limit the complexity of the drawn graphs, the following limits are introduced:
+
+- `max_successor_depth`: Maximum number of successor levels drawn.
+- `max_ancestor_depth`: Maximum number of ancestor levels drawn.
+
+These shall be parameterizable through the configuration.
+
+edges
+-----
+
+### §1
+The following directory dependencies are considered (not necessarily drawn):
+
+ - all from of the ON
+ - all from all successors of the ON
+ - all from all ancestor of the ON which are drawn
+
+### §2
+From the set of the considered dependencies, each dependency shall be drawn as an edge in the graph from the node of the dependent directory to either:
+
+ - the node representing the dependee (if drawn) or
+ - the first ancestor of the dependee which is drawn
+
+nodes
+-----
+
+### §5
+The following directories shall be drawn as nodes in the graph:
+
+1. the ON marked as "original"
+2. all successors of the ON while in limit `max_successor_depth`. If such a directory has children on its own, which would exceed the limit, it shall be marked as "truncated".
+3. all ancestor of ON while in limit `max_ancestor_depth`. All these nodes shall be marked as "incomplete". If such a directory has parents on its own, which would exceed the limit, it shall be marked as "truncated".
+4. {for each drawn dependee (see §2)} the node,
+  its successors while in limit `max_successor_depth`,
+  its ancestors while in limit `max_ancestor_depth`.
+  If those are not in the set of (1.) or (2.) then they shall be marked as "incomplete".
+
+questions
+------------
+Shall the limits be applied relative to the ON or to each dependent and dependee on its own?
+
+ * @endinternal
+ */
+
 #include "dotdirdeps.h"
 
 #include "ftextstream.h"
