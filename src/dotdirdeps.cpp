@@ -78,11 +78,6 @@ The following directories shall be drawn as nodes in the graph:
   its ancestors while in limit `max_ancestor_depth`.
   If those are not in the set of (1.) or (2.) then they shall be marked as "incomplete".
 
-
-@todo questions
-------------
-Shall the limits be applied relative to the ON or to each dependent and dependee on its own?
-
  * @endinternal
  */
 
