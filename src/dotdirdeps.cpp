@@ -26,7 +26,7 @@ terms
 - **original node** (ON) is the directory for which the directory dependency graph is drawn
 - **ancestors** are all parents / sup-directories (*recursively*) of a directory
 - **successors** are all children / sub-directories (*recursively*) of a directory
-- **[dependee](https://en.wiktionary.org/wiki/dependee#Noun)** as the directory which is depended upon
+- **[dependee](https://en.wiktionary.org/wiki/dependee#Noun)** as a directory which is depended upon
 
 special formatting
 ------------------
@@ -47,39 +47,68 @@ In order to limit the complexity of the drawn graphs, the following limits are i
 - `max_successor_depth`: Maximum number of successor levels drawn.
 - `max_ancestor_depth`: Maximum number of ancestor levels drawn.
 
-The limits are specified relative to the global depth of the ON. They are applied on the global depth of each directory involved while determining successors or ancestors.
+The limits are specified relative to the global depth of the ON. They are applied on the global depth of each directory involved while determining successors or ancestors *to be drawn*.
 
 These shall be parameterizable through the configuration.
 
-edges
------
+Algorithm
+---------
 
-### §1
-The following directory dependencies are considered (not necessarily drawn) in the first step:
+May A, B, C, D, E, F be sets of nodes defined as follows:
 
- - all from of the ON
- - all from all successors of the ON
+ - A = ON (mark as "original")
+ - B = successors(A)
+ - C = dependees(A ∪ B)
+ - D = successors(C)
+ - E = A ∪ B ∪ C ∪ D
+ - F = ancestors(A ∪ C)
 
-### §2
-From the set of the considered dependencies, each dependency shall be drawn as an edge in the graph from the node of the dependent directory to either:
+edges = dependencies(E)
 
- - the node representing the dependee if not exceeding `max_successor_depth` else
- - the first ancestor of the dependee which is drawn
+draw nodes = draw_limited(ancestor list)
 
-### §6
-Now all dependencies between all nodes as a result from §5 2. shall be drawn as well. This simplifies a superficial analysis of circular dependencies.
+### draw_limited(x)
+ - if x is parent:
+     - if children within limit `max_successor_depth`
+       1. open cluster
+       2. for each child: draw_limited(child)
+       3. close cluster
+     - else
+      - draw_directory(properties + "truncated")
+ - else
+   1. draw_directory(properties)
 
-nodes
------
 
-### §5
-The following directories shall be drawn as nodes in the graph:
+### Ancestor(x)
+ 1. if x in ancestor list, return; else
+ 2. mark x as "incomplete" (properties list)
+ 3. if parent of x would exceed limit mark as "orphaned"; put x to ancestor list and return; else
+ 4. if x has no; put x to ancestor list and return; else
+ 5. Ancestor(p)
 
- 1. All nodes from §2.
- 2. All successors of the nodes from (1.) while in limit `max_successor_depth`. If such a directory has children on its own, which would exceed the limit, it shall be marked as "truncated".
- 3. All ancestors of the nodes from (1.) while in limit `max_ancestor_depth` if not already in the set. All added nodes shall be marked as "incomplete". If such a directory has parents on its own, which would exceed the limit, it shall be marked as "orphaned".
+### dependees(x)
+For each dependency of x, all dependees and *do not* respect limits.
+Add each node only once.
 
-The ON shall be marked as "original".
+### dependencies(set)
+ can only be determined, when the complete and not truncated set of nodes is known.
+ determines all dependencies within a set, respecting the limits
+ 1. Take the ancestor list and walk through each tree. For each tree:
+ 2. Walk trough the tree (using any algorithm). For each node x:
+ 3. For each dependency d_x of x consisting of the dependent d_x_from and the dependee d_x_to
+   1. p = visible_ancestor(d_x_from)
+   2. q = visible_ancestor(d_x_to)
+   3. add relation p -> q to list of dependencies
+
+### Successors
+Determine recursively children and *do not* respect limits.
+
+### Maintain
+
+ - a `map<>` container with the drawing properties of all nodes.
+ - ancestor list: list of all tree roots
+ - list of dependencies: List of dependencies to be drawn (limits are respected)
+
 
  * @endinternal
  */
