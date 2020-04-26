@@ -213,6 +213,21 @@ static void writeDotDirDepSubGraph(FTextStream &t, const DirDef *const dd,
   }
 }
 
+void writeDotDirDependencyGraph(const FTextStream &outputStream,
+    const DirDef *const originalDirectoryPointer, const bool linkRelations)
+{
+  const auto originalDirectory
+  { originalDirectoryPointer };
+  const auto successorsOfOriginalDirectory = getSuccessors(originalDirectory);
+  const auto dependeeDirectories = getDependees(originalDirectory + successorsOfOriginalDirectory);
+  const auto listOfTreeRoots = getAncestorsLimited(originalDirectory + dependeeDirectories);
+  drawTrees(outputStream, listOfTreeRoots);
+  const auto allNonAncestorDirectories = originalDirectory + successorsOfOriginalDirectory
+      + dependeeDirectories + getSuccessors(dependeeDirectories);
+  const auto listOfDependencies = getDependencies(allNonAncestorDirectories);
+  drawDependencies(outputStream, listOfDependencies, linkRelations);
+}
+
 void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 {
   int fontSize = Config_getInt(DOT_FONTSIZE);
