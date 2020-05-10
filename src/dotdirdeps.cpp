@@ -113,6 +113,7 @@ Determine recursively children and *do not* respect limits.
  * @endinternal
  */
 
+#include <algorithm>
 #include "dotdirdeps.h"
 
 #include "ftextstream.h"
@@ -257,13 +258,43 @@ static DirList getSuccessors(const DirList &nextLevelSuccessors)
   return successors;
 }
 
+/**
+ * ### dependees(x)
+For each dependency of x, all dependees and *do not* respect limits.
+Add each node only once.
+
+**[dependee](https://en.wiktionary.org/wiki/dependee#Noun)** is a directory which is depended upon
+ *
+ * @param dependents (dependers which depend on the dependees)
+ * @return
+ */
+static DirList getDependees(const DirList& dependents)
+{
+  DirList dependees;
+  for(const auto dependent : dependents)
+  {
+    QDictIterator<UsedDir> usedDirectoriesIterator(*dependent->usedDirs());
+    const UsedDir *usedDirectory;
+    for (usedDirectoriesIterator.toFirst(); (usedDirectory = usedDirectoriesIterator.current()); ++usedDirectoriesIterator) // for each used directory
+    {
+      dependees += usedDirectory->dir();
+    }
+  }
+  // there is the possibility that dependents target the same dependees
+  // remove duplicates https://www.techiedelight.com/remove-duplicates-vector-cpp/
+  std::sort(dependees.begin(), dependees.end());
+  const auto last = std::unique(dependees.begin(), dependees.end());
+  dependees.erase(last, dependees.end());
+  return dependees;
+}
+
 void writeDotDirDependencyGraph(const FTextStream &outputStream,
     const DirDef *const originalDirectoryPointer, const bool linkRelations)
 {
   const auto originalDirectory
   { originalDirectoryPointer };
   const auto successorsOfOriginalDirectory = getSuccessors(originalDirectoryPointer->subDirs());
-  const auto dependeeDirectories = getDependees(originalDirectory + successorsOfOriginalDirectory);
+  const auto dependeeDirectories = getDependees(successorsOfOriginalDirectory + originalDirectoryPointer);
   const auto listOfTreeRoots = getAncestorsLimited(originalDirectory + dependeeDirectories);
   drawTrees(outputStream, listOfTreeRoots);
   const auto allNonAncestorDirectories = originalDirectory + successorsOfOriginalDirectory
