@@ -120,6 +120,8 @@ Determine recursively children and *do not* respect limits.
 #include "doxygen.h"
 #include "config.h"
 
+//! @todo https://stackoverflow.com/a/49174699/5534993
+
 //! @see https://stackoverflow.com/a/21391109/5534993
 template <typename T>
 std::vector<T> operator+(const std::vector<T> &A, const std::vector<T> &B)
