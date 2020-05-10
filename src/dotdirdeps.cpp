@@ -122,6 +122,7 @@ Determine recursively children and *do not* respect limits.
 #include "config.h"
 
 //! @todo https://stackoverflow.com/a/49174699/5534993
+//! @todo https://en.cppreference.com/w/cpp/container/list/splice
 
 //! @see https://stackoverflow.com/a/21391109/5534993
 template <typename T>
