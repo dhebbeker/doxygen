@@ -26,7 +26,7 @@ terms
 - **original node** (ON) is the directory for which the directory dependency graph is drawn
 - **ancestors** are all parents / sup-directories (*recursively*) of a directory
 - **successors** are all children / sub-directories (*recursively*) of a directory
-- **[dependee](https://en.wiktionary.org/wiki/dependee#Noun)** as a directory which is depended upon
+- **[dependee](https://en.wiktionary.org/wiki/dependee#Noun)** is a directory which is depended upon
 
 special formatting
 ------------------
