@@ -140,7 +140,20 @@ std::vector<T> &operator+=(std::vector<T> &A, const std::vector<T> &B)
     return A;                                        // here A could be named AB
 }
 
+template<typename T>
+std::vector<T> operator+(const std::vector<T> &A, const T &B)
+{
+  std::vector<T> AB(A);
+  AB.push_back(B);
+  return AB;
+}
 
+template<typename T>
+std::vector<T>& operator+=(std::vector<T> &A, const T &B)
+{
+  A.push_back(B);
+  return A;
+}
 
 static std::size_t getMaxDirectoryDepth()
 {
