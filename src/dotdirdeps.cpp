@@ -211,12 +211,23 @@ static void writeDotDirDepSubGraph(FTextStream &t, const DirDef *const dd,
   }
 }
 
+static DirList getSuccessors(const DirList &nextLevelSuccessors)
+{
+  DirList successors;
+  for (const auto successor : nextLevelSuccessors)
+  {
+    successors += successor;
+    successors += getSuccessors(successor->subDirs());
+  }
+  return successors;
+}
+
 void writeDotDirDependencyGraph(const FTextStream &outputStream,
     const DirDef *const originalDirectoryPointer, const bool linkRelations)
 {
   const auto originalDirectory
   { originalDirectoryPointer };
-  const auto successorsOfOriginalDirectory = getSuccessors(originalDirectory);
+  const auto successorsOfOriginalDirectory = getSuccessors(originalDirectoryPointer->subDirs());
   const auto dependeeDirectories = getDependees(originalDirectory + successorsOfOriginalDirectory);
   const auto listOfTreeRoots = getAncestorsLimited(originalDirectory + dependeeDirectories);
   drawTrees(outputStream, listOfTreeRoots);
