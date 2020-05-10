@@ -254,7 +254,6 @@ add_library(_doxygen STATIC
     memberdef.cpp
     membergroup.cpp
     memberlist.cpp
-    membername.cpp
     message.cpp
     msc.cpp
     namespacedef.cpp
@@ -283,6 +282,13 @@ add_library(_doxygen STATIC
     xmldocvisitor.cpp
     xmlgen.cpp
 )
+
+# LLVM/clang headers give a lot of warnings with -Wshadow and -Wcast-align so we disable them for
+# the one file that includes them
+
+if (NOT MSVC)
+set_source_files_properties(clangparser.cpp PROPERTIES COMPILE_FLAGS "-Wno-shadow -Wno-cast-align")
+endif()
 
 ##foreach(lex_file ${LEX_FILES})
 ##add_library(_doxygen STATIC ${GENERATED_SRC}/${lex_file}.l.h)

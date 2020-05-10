@@ -22,8 +22,7 @@
 #include <qdict.h>
 #include <qintdict.h>
 
-#include <unordered_set>
-
+#include "containers.h"
 #include "ftextstream.h"
 #include "sortdict.h"
 #include "membergroup.h"
@@ -36,7 +35,6 @@ class PageSDict;
 class PageDef;
 class SearchIndexIntf;
 class ParserManager;
-class Store;
 class QFileInfo;
 class BufStr;
 class CiteDict;
@@ -101,7 +99,7 @@ class Doxygen
     static bool                      insideMainPage;
     static FileNameLinkedMap        *includeNameLinkedMap;
     static FileNameLinkedMap        *exampleNameLinkedMap;
-    static QDict<void>               inputPaths;
+    static StringSet                 inputPaths;
     static FileNameLinkedMap        *inputNameLinkedMap;
     static FileNameLinkedMap        *imageNameLinkedMap;
     static FileNameLinkedMap        *dotFileNameLinkedMap;
@@ -110,13 +108,13 @@ class Doxygen
     static MemberNameLinkedMap      *memberNameLinkedMap;
     static MemberNameLinkedMap      *functionNameLinkedMap;
     static QStrList                  tagfileList;
-    static StringDict                namespaceAliasDict;
+    static StringUnorderedMap        namespaceAliasMap;
     static GroupSDict               *groupSDict;
     static NamespaceSDict           *namespaceSDict;
     static StringDict                tagDestinationDict;
     static StringDict                aliasDict;
     static QIntDict<MemberGroupInfo> memGrpInfoDict;
-    static std::unordered_set<std::string> expandAsDefinedSet;
+    static StringUnorderedSet        expandAsDefinedSet;
     static NamespaceDef             *globalScope;
     static QCString                  htmlFileExtension;
     static bool                      parseSourcesNeeded;
@@ -131,7 +129,6 @@ class Doxygen
     static SDict<DirRelation>        dirRelations;
     static ParserManager            *parserManager;
     static bool                      suppressDocWarnings;
-    static Store                    *symbolStorage;
     static QCString                  objDBFileName;
     static QCString                  entryDBFileName;
     static QCString                  filterDBFileName;
@@ -149,7 +146,6 @@ void initDoxygen();
 void readConfiguration(int argc, char **argv);
 void checkConfiguration();
 void adjustConfiguration();
-void searchInputFiles(StringList &inputFiles);
 void parseInput();
 void generateOutput();
 void readAliases();
@@ -157,27 +153,16 @@ void readFormulaRepository(QCString dir, bool cmp = FALSE);
 void cleanUpDoxygen();
 int readFileOrDirectory(const char *s,
                         FileNameLinkedMap *fnDict,
-                        StringDict *exclDict,
+                        StringUnorderedSet *exclSet,
                         QStrList *patList,
                         QStrList *exclPatList,
-                        StringList *resultList,
-                        StringDict *resultDict,
+                        StringVector *resultList,
+                        StringUnorderedSet *resultSet,
                         bool recursive,
                         bool errorIfNotExist=TRUE,
-                        QDict<void> *killDict = 0,
-                        QDict<void> *paths = 0
+                        StringUnorderedSet *killSet = 0,
+                        StringSet *paths = 0
                        );
-int readDir(QFileInfo *fi,
-            FileNameLinkedMap *fnDict,
-            StringDict  *exclDict,
-            QStrList *patList,
-            QStrList *exclPatList,
-            StringList *resultList,
-            StringDict *resultDict,
-            bool errorIfNotExist,
-            bool recursive,
-            QDict<void> *killDict
-           );
 void copyAndFilterFile(const char *fileName,BufStr &dest);
 
 #endif

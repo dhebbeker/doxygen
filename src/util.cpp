@@ -482,21 +482,22 @@ ClassDef *getClass(const char *n)
 NamespaceDef *getResolvedNamespace(const char *name)
 {
   if (name==0 || name[0]=='\0') return 0;
-  QCString *subst = Doxygen::namespaceAliasDict[name];
-  if (subst)
+  auto it = Doxygen::namespaceAliasMap.find(name);
+  if (it!=Doxygen::namespaceAliasMap.end())
   {
     int count=0; // recursion detection guard
-    QCString *newSubst;
-    while ((newSubst=Doxygen::namespaceAliasDict[*subst]) && count<10)
+    StringUnorderedMap::iterator it2;
+    while ((it2=Doxygen::namespaceAliasMap.find(it->second))!=Doxygen::namespaceAliasMap.end() &&
+           count<10)
     {
-      subst=newSubst;
+      it=it2;
       count++;
     }
     if (count==10)
     {
       warn_uncond("possible recursive namespace alias detected for %s!\n",name);
     }
-    return Doxygen::namespaceSDict->find(subst->data());
+    return Doxygen::namespaceSDict->find(it->second.data());
   }
   else
   {
@@ -2255,12 +2256,12 @@ QCString argListToString(const ArgumentList &al,bool useCanonicalType,bool showD
     if (it!=al.end()) result+=", ";
   }
   result+=")";
-  if (al.constSpecifier) result+=" const";
-  if (al.volatileSpecifier) result+=" volatile";
-  if (al.refQualifier==RefQualifierLValue) result+=" &";
-  else if (al.refQualifier==RefQualifierRValue) result+=" &&";
-  if (!al.trailingReturnType.isEmpty()) result+=" -> "+al.trailingReturnType;
-  if (al.pureSpecifier) result+=" =0";
+  if (al.constSpecifier()) result+=" const";
+  if (al.volatileSpecifier()) result+=" volatile";
+  if (al.refQualifier()==RefQualifierLValue) result+=" &";
+  else if (al.refQualifier()==RefQualifierRValue) result+=" &&";
+  if (!al.trailingReturnType().isEmpty()) result+=" -> "+al.trailingReturnType();
+  if (al.pureSpecifier()) result+=" =0";
   return removeRedundantWhiteSpace(result);
 }
 
@@ -3207,19 +3208,19 @@ bool matchArguments2(const Definition *srcScope,const FileDef *srcFileScope,cons
 
   if (checkCV)
   {
-    if (srcAl->constSpecifier != dstAl->constSpecifier)
+    if (srcAl->constSpecifier() != dstAl->constSpecifier())
     {
       NOMATCH
       return FALSE; // one member is const, the other not -> no match
     }
-    if (srcAl->volatileSpecifier != dstAl->volatileSpecifier)
+    if (srcAl->volatileSpecifier() != dstAl->volatileSpecifier())
     {
       NOMATCH
       return FALSE; // one member is volatile, the other not -> no match
     }
   }
 
-  if (srcAl->refQualifier != dstAl->refQualifier)
+  if (srcAl->refQualifier() != dstAl->refQualifier())
   {
     NOMATCH
     return FALSE; // one member is has a different ref-qualifier than the other
@@ -4871,6 +4872,7 @@ QCString escapeCharsInString(const char *name,bool allowDots,bool allowUnderscor
       case '@': growBuf.addStr("_0d"); break;
       case ']': growBuf.addStr("_0e"); break;
       case '[': growBuf.addStr("_0f"); break;
+      case '#': growBuf.addStr("_0g"); break;
       default:
                 if (c<0)
                 {
@@ -4985,6 +4987,7 @@ QCString unescapeCharsInString(const char *s)
                case 'd': result+='@'; p+=2; break; // _0d -> '@'
                case 'e': result+=']'; p+=2; break; // _0e -> ']'
                case 'f': result+='['; p+=2; break; // _0f -> '['
+               case 'g': result+='#'; p+=2; break; // _0g -> '#'
                default: // unknown escape, just pass underscore character as-is
                  result+=c;
                  break;
@@ -6130,7 +6133,7 @@ found:
 PageDef *addRelatedPage(const char *name,const QCString &ptitle,
     const QCString &doc,
     const char *fileName,int startLine,
-    const std::vector<RefItem*> &sli,
+    const RefItemVector &sli,
     GroupDef *gd,
     const TagInfo *tagInfo,
     bool xref,
@@ -6217,7 +6220,7 @@ PageDef *addRelatedPage(const char *name,const QCString &ptitle,
 
 //----------------------------------------------------------------------------
 
-void addRefItem(const std::vector<RefItem*> &sli,
+void addRefItem(const RefItemVector &sli,
     const char *key,
     const char *prefix, const char *name,const char *title,const char *args,const Definition *scope)
 {
@@ -6619,11 +6622,14 @@ void replaceNamespaceAliases(QCString &scope,int i)
   while (i>0)
   {
     QCString ns = scope.left(i);
-    QCString *s = Doxygen::namespaceAliasDict[ns];
-    if (s)
+    if (!ns.isEmpty())
     {
-      scope=*s+scope.right(scope.length()-i);
-      i=s->length();
+      auto it = Doxygen::namespaceAliasMap.find(ns.data());
+      if (it!=Doxygen::namespaceAliasMap.end())
+      {
+        scope=it->second.data()+scope.right(scope.length()-i);
+        i=static_cast<int>(it->second.length());
+      }
     }
     if (i>0 && ns==scope.left(i)) break;
   }

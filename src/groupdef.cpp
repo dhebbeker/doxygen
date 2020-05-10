@@ -64,7 +64,7 @@ class GroupDefImpl : public DefinitionImpl, public GroupDef
     virtual void addGroup(const GroupDef *def);
     virtual void addPage(PageDef *def);
     virtual void addExample(const PageDef *def);
-    virtual void addDir(const DirDef *dd);
+    virtual void addDir(DirDef *dd);
     virtual bool insertMember(MemberDef *def,bool docOnly=FALSE);
     virtual void removeMember(MemberDef *md);
     virtual bool findGroup(const GroupDef *def) const; // true if def is a subgroup of this group
@@ -101,7 +101,7 @@ class GroupDefImpl : public DefinitionImpl, public GroupDef
     virtual NamespaceSDict * getNamespaces() const  { return m_namespaceSDict; }
     virtual GroupList *     getSubGroups() const    { return m_groupList; }
     virtual PageSDict *     getPages() const        { return m_pageDict; }
-    virtual DirList *       getDirs() const         { return m_dirList; }
+    virtual const DirList & getDirs() const         { return m_dirList; }
     virtual PageSDict *     getExamples() const     { return m_exampleDict; }
     virtual bool hasDetailedDescription() const;
     virtual void sortSubGroups();
@@ -141,9 +141,9 @@ class GroupDefImpl : public DefinitionImpl, public GroupDef
     GroupList *          m_groupList;           // list of sub groups.
     PageSDict *          m_pageDict;            // list of pages in the group
     PageSDict *          m_exampleDict;         // list of examples in the group
-    DirList *            m_dirList;             // list of directories in the group
+    DirList              m_dirList;             // list of directories in the group
     MemberList *         m_allMemberList;
-    MemberNameInfoSDict *m_allMemberNameInfoSDict;
+    MemberNameInfoLinkedMap m_allMemberNameInfoLinkedMap;
     Definition *         m_groupScope;
     QList<MemberList>    m_memberLists;
     MemberGroupSDict *   m_memberGroupSDict;
@@ -169,9 +169,6 @@ GroupDefImpl::GroupDefImpl(const char *df,int dl,const char *na,const char *t,
   m_namespaceSDict = new NamespaceSDict(17);
   m_pageDict = new PageSDict(17);
   m_exampleDict = new PageSDict(17);
-  m_dirList = new DirList;
-  m_allMemberNameInfoSDict = new MemberNameInfoSDict(17);
-  m_allMemberNameInfoSDict->setAutoDelete(TRUE);
   if (refFileName)
   {
     m_fileName=stripExtension(refFileName);
@@ -200,9 +197,7 @@ GroupDefImpl::~GroupDefImpl()
   delete m_pageDict;
   delete m_exampleDict;
   delete m_allMemberList;
-  delete m_allMemberNameInfoSDict;
   delete m_memberGroupSDict;
-  delete m_dirList;
 }
 
 void GroupDefImpl::setGroupTitle( const char *t )
@@ -327,13 +322,10 @@ bool GroupDefImpl::addNamespace(const NamespaceDef *def)
   return FALSE;
 }
 
-void GroupDefImpl::addDir(const DirDef *def)
+void GroupDefImpl::addDir(DirDef *def)
 {
   if (def->isHidden()) return;
-  if (Config_getBool(SORT_BRIEF_DOCS))
-    m_dirList->inSort(def);
-  else
-    m_dirList->append(def);
+  m_dirList.push_back(def);
 }
 
 void GroupDefImpl::addPage(PageDef *def)
@@ -378,54 +370,43 @@ bool GroupDefImpl::insertMember(MemberDef *md,bool docOnly)
   if (md->isHidden()) return FALSE;
   updateLanguage(md);
   //printf("GroupDef(%s)::insertMember(%s)\n", title.data(), md->name().data());
-  MemberNameInfo *mni=0;
-  if ((mni=(*m_allMemberNameInfoSDict)[md->name()]))
-  { // member with this name already found
-    MemberNameInfoIterator srcMnii(*mni);
-    const MemberInfo *srcMi;
-    for ( ; (srcMi=srcMnii.current()) ; ++srcMnii )
-    {
-      const MemberDef *srcMd = srcMi->memberDef;
-      if (srcMd==md) return FALSE; // already added before!
-
-      bool sameScope = srcMd->getOuterScope()==md->getOuterScope() || // same class or namespace
-          // both inside a file => definition and declaration do not have to be in the same file
-           (srcMd->getOuterScope()->definitionType()==Definition::TypeFile &&
-               md->getOuterScope()->definitionType()==Definition::TypeFile);
-
-      const ArgumentList &srcMdAl  = srcMd->argumentList();
-      const ArgumentList &mdAl     = md->argumentList();
-      const ArgumentList &tSrcMdAl = srcMd->templateArguments();
-      const ArgumentList &tMdAl    = md->templateArguments();
-
-      if (srcMd->isFunction() && md->isFunction() && // both are a function
-          (tSrcMdAl.size()==tMdAl.size()) &&       // same number of template arguments
-          matchArguments2(srcMd->getOuterScope(),srcMd->getFileDef(),&srcMdAl,
-                          md->getOuterScope(),md->getFileDef(),&mdAl,
-                          TRUE
-                         ) && // matching parameters
-          sameScope // both are found in the same scope
-         )
-      {
-        if (srcMd->getGroupAlias()==0)
-        {
-          md->setGroupAlias(srcMd);
-        }
-        else if (md!=srcMd->getGroupAlias())
-        {
-          md->setGroupAlias(srcMd->getGroupAlias());
-        }
-        return FALSE; // member is the same as one that is already added
-      }
-    }
-    mni->append(new MemberInfo(md,md->protection(),md->virtualness(),FALSE));
-  }
-  else
+  MemberNameInfo *mni = m_allMemberNameInfoLinkedMap.add(md->name());
+  for (auto &srcMi : *mni)
   {
-    mni = new MemberNameInfo(md->name());
-    mni->append(new MemberInfo(md,md->protection(),md->virtualness(),FALSE));
-    m_allMemberNameInfoSDict->append(mni->memberName(),mni);
+    const MemberDef *srcMd = srcMi->memberDef();
+    if (srcMd==md) return FALSE; // already added before!
+
+    bool sameScope = srcMd->getOuterScope()==md->getOuterScope() || // same class or namespace
+        // both inside a file => definition and declaration do not have to be in the same file
+         (srcMd->getOuterScope()->definitionType()==Definition::TypeFile &&
+             md->getOuterScope()->definitionType()==Definition::TypeFile);
+
+    const ArgumentList &srcMdAl  = srcMd->argumentList();
+    const ArgumentList &mdAl     = md->argumentList();
+    const ArgumentList &tSrcMdAl = srcMd->templateArguments();
+    const ArgumentList &tMdAl    = md->templateArguments();
+
+    if (srcMd->isFunction() && md->isFunction() && // both are a function
+        (tSrcMdAl.size()==tMdAl.size()) &&       // same number of template arguments
+        matchArguments2(srcMd->getOuterScope(),srcMd->getFileDef(),&srcMdAl,
+                        md->getOuterScope(),md->getFileDef(),&mdAl,
+                        TRUE
+                       ) && // matching parameters
+        sameScope // both are found in the same scope
+       )
+    {
+      if (srcMd->getGroupAlias()==0)
+      {
+        md->setGroupAlias(srcMd);
+      }
+      else if (md!=srcMd->getGroupAlias())
+      {
+        md->setGroupAlias(srcMd->getGroupAlias());
+      }
+      return FALSE; // member is the same as one that is already added
+    }
   }
+  mni->push_back(std::make_unique<MemberInfo>(md,md->protection(),md->virtualness(),FALSE));
   //printf("Added member!\n");
   m_allMemberList->append(md);
   switch(md->memberType())
@@ -539,23 +520,10 @@ bool GroupDefImpl::insertMember(MemberDef *md,bool docOnly)
 void GroupDefImpl::removeMember(MemberDef *md)
 {
   // fprintf(stderr, "GroupDef(%s)::removeMember( %s )\n", title.data(), md->name().data());
-  MemberNameInfo *mni = m_allMemberNameInfoSDict->find(md->name());
+  MemberNameInfo *mni = m_allMemberNameInfoLinkedMap.find(md->name());
   if (mni)
   {
-    MemberNameInfoIterator mnii(*mni);
-    while( mnii.current() )
-    {
-      if( mnii.current()->memberDef == md )
-      {
-	mni->remove(mnii.current());
-        break;
-      }
-      ++mnii;
-    }
-    if( mni->isEmpty() )
-    {
-      m_allMemberNameInfoSDict->remove(md->name());
-    }
+    m_allMemberNameInfoLinkedMap.del(md->name());
 
     removeMemberFromList(MemberListType_allMembersList,md);
     switch(md->memberType())
@@ -780,16 +748,11 @@ void GroupDefImpl::writeTagFile(FTextStream &tagFile)
         break;
       case LayoutDocEntry::GroupDirs:
         {
-          if (m_dirList)
+          for(const auto dd : m_dirList)
           {
-            QListIterator<DirDef> it(*m_dirList);
-            DirDef *dd;
-            for (;(dd=it.current());++it)
+            if (dd->isLinkableInProject())
             {
-              if (dd->isLinkableInProject())
-              {
-                tagFile << "    <dir>" << convertToXML(dd->displayName()) << "</dir>" << endl;
-              }
+              tagFile << "    <dir>" << convertToXML(dd->displayName()) << "</dir>" << endl;
             }
           }
         }
@@ -1049,15 +1012,13 @@ void GroupDefImpl::writeNestedGroups(OutputList &ol,const QCString &title)
 void GroupDefImpl::writeDirs(OutputList &ol,const QCString &title)
 {
   // write list of directories
-  if (m_dirList->count()>0)
+  if (!m_dirList.empty())
   {
     ol.startMemberHeader("dirs");
     ol.parseText(title);
     ol.endMemberHeader();
     ol.startMemberList();
-    QListIterator<DirDef> it(*m_dirList);
-    DirDef *dd;
-    for (;(dd=it.current());++it)
+    for(const auto dd : m_dirList)
     {
       if (!dd->hasDocumentation()) continue;
       ol.startMemberDeclaration();
@@ -1187,7 +1148,7 @@ void GroupDefImpl::writeSummaryLinks(OutputList &ol) const
         (lde->kind()==LayoutDocEntry::GroupNamespaces && m_namespaceSDict->declVisible()) ||
         (lde->kind()==LayoutDocEntry::GroupFiles && m_fileList->count()>0) ||
         (lde->kind()==LayoutDocEntry::GroupNestedGroups && m_groupList->count()>0) ||
-        (lde->kind()==LayoutDocEntry::GroupDirs && m_dirList->count()>0)
+        (lde->kind()==LayoutDocEntry::GroupDirs && !m_dirList.empty())
        )
     {
       LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
@@ -1656,7 +1617,7 @@ QCString GroupDefImpl::getOutputFileBase() const
 void GroupDefImpl::addListReferences()
 {
   {
-    const std::vector<RefItem*> &xrefItems = xrefListItems();
+    const RefItemVector &xrefItems = xrefListItems();
     addRefItem(xrefItems,
              getOutputFileBase(),
              theTranslator->trGroup(TRUE,TRUE),
@@ -1719,6 +1680,10 @@ void GroupDefImpl::sortMemberLists()
   for (;(ml=mli.current());++mli)
   {
     if (ml->needsSorting()) { ml->sort(); ml->setNeedsSorting(FALSE); }
+  }
+  if (Config_getBool(SORT_BRIEF_DOCS))
+  {
+    std::sort(m_dirList.begin(), m_dirList.end(), compareDirDefs);
   }
 }
 

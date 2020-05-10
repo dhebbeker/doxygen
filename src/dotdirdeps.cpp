@@ -193,9 +193,7 @@ static void writeDotDirDepSubGraph(FTextStream &t, const DirDef *const dd,
           << "\"];\n";
 
       // add nodes for sub directories
-      QListIterator<DirDef> sdi(dd->subDirs());
-      const DirDef *sdir;
-      for (sdi.toFirst(); (sdir = sdi.current()); ++sdi)
+      for(const auto sdir : dd->subDirs())
       {
         writeDotDirDepSubGraph(t, sdir, dirsInGraph, remainingDepth - 1);
         dirsInGraph.insert(sdir->getOutputFileBase(), sdir);

@@ -17,10 +17,33 @@
 
 #include <stdio.h>
 #include "reflist.h"
+#include "util.h"
 #include "ftextstream.h"
 #include "definition.h"
 #include "sortdict.h"
 #include "config.h"
+
+RefList::RefList(const char *listName, const char *pageTitle, const char *secTitle) :
+       m_listName(listName), m_fileName(convertNameToFile(listName,FALSE,TRUE)),
+       m_pageTitle(pageTitle), m_secTitle(secTitle)
+{
+}
+
+RefItem *RefList::add()
+{
+  m_id++;
+  std::unique_ptr<RefItem> item = std::make_unique<RefItem>(m_id,this);
+  RefItem *result = item.get();
+  m_entries.push_back(std::move(item));
+  m_lookup.insert({m_id,result});
+  return result;
+}
+
+RefItem *RefList::find(int itemId)
+{
+  auto it = m_lookup.find(itemId);
+  return it!=m_lookup.end() ? it->second : nullptr;
+}
 
 bool RefList::isEnabled() const
 {
@@ -40,11 +63,14 @@ void RefList::generatePage()
             { return qstricmp(left->title(),left->title()); });
   //RefItem *item;
   QCString doc;
+  int cnt = 0;
   doc += "<dl class=\"reflist\">";
   QCString lastGroup;
   bool first=true;
   for (const std::unique_ptr<RefItem> &item : m_entries)
   {
+    if (!item->name()) continue;
+    cnt++;
     bool startNewGroup = item->group()!=lastGroup;
     if (startNewGroup)
     {
@@ -96,6 +122,8 @@ void RefList::generatePage()
   }
   doc += "</dl>\n";
   //printf("generatePage('%s')\n",doc.data());
-  addRelatedPage(m_listName,m_pageTitle,doc,m_fileName,1,std::vector<RefItem*>(),0,0,TRUE);
+  if (cnt>0) 
+  {
+    addRelatedPage(m_listName,m_pageTitle,doc,m_fileName,1,RefItemVector(),0,0,TRUE);
+  }
 }
-

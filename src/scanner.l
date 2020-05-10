@@ -38,7 +38,6 @@
 #include <ctype.h>
 
 #include <qarray.h>
-#include <qstack.h>
 #include <qregexp.h>
 #include <qfile.h>
 
@@ -161,7 +160,6 @@ struct scannerYY_state
   QGString        *pCopyHereDocGString = 0;
   QGString        *pCopyRawGString = 0;
   QGString        *pSkipVerbString = 0;
-  QStack<Grouping> autoGroupStack;
 
   bool             insideFormula = false;
   bool             insideTryBlock = false;
@@ -251,7 +249,7 @@ RAWBEGIN  (u|U|L|u8)?R\"[^ \t\(\)\\]{0,16}"("
 RAWEND    ")"[^ \t\(\)\\]{0,16}\"
 ARITHOP   "+"|"-"|"/"|"*"|"%"|"--"|"++"
 ASSIGNOP  "="|"*="|"/="|"%="|"+="|"-="|"<<="|">>="|"&="|"^="|"|="
-LOGICOP   "=="|"!="|">"|"<"|">="|"<="|"&&"|"||"|"!"
+LOGICOP   "=="|"!="|">"|"<"|">="|"<="|"&&"|"||"|"!"|"<=>"
 BITOP     "&"|"|"|"^"|"<<"|">>"|"~"
 OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 
@@ -852,7 +850,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					  }
                                           if (yyextra->current->argList.empty()) // method without parameters
                                           {
-                                            yyextra->current->argList.noParameters = TRUE;
+                                            yyextra->current->argList.setNoParameters(TRUE);
                                           }
   					  yyextra->current->args = argListToString(yyextra->current->argList);
 					  //printf("argList=%s\n",yyextra->current->args.data());
@@ -870,7 +868,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					  }
                                           if (yyextra->current->argList.empty()) // method without parameters
                                           {
-                                            yyextra->current->argList.noParameters = TRUE;
+                                            yyextra->current->argList.setNoParameters(TRUE);
                                           }
   					  yyextra->current->args = argListToString(yyextra->current->argList);
                                           unput('{');
@@ -1644,17 +1642,9 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
   					}
 <NSAliasArg>({ID}"::")*{ID}		{
   					  //printf("Inserting namespace alias %s::%s->%s\n",yyextra->current_root->name.data(),yyextra->aliasName.data(),yytext);
-					  //if (yyextra->current_root->name.isEmpty())
-					  //{
                                           // TODO: namespace aliases are now treated as global entities
                                           // while they should be aware of the scope they are in
-                                            Doxygen::namespaceAliasDict.insert(yyextra->aliasName,new QCString(yytext));
-					  //}
-					  //else
-					  //{
-                                          //  Doxygen::namespaceAliasDict.insert(yyextra->current_root->name+"::"+yyextra->aliasName,
-					  //	new QCString(yyextra->current_root->name+"::"+yytext));
-					  //}
+                                          Doxygen::namespaceAliasMap.insert({yyextra->aliasName.data(),std::string(yytext)});
   					}
 <NSAliasArg>";"				{
   					  BEGIN( FindMembers );
@@ -1687,9 +1677,9 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
   					  //printf("PHP: adding use as relation: %s->%s\n",yytext,yyextra->aliasName.data());
                                           if (!yyextra->aliasName.isEmpty())
                                           {
-                                            Doxygen::namespaceAliasDict.insert(yytext,
-					         new QCString(removeRedundantWhiteSpace(
-					  	   substitute(yyextra->aliasName,"\\","::"))));
+                                            Doxygen::namespaceAliasMap.insert({yytext,
+					         std::string(removeRedundantWhiteSpace(
+					  	   substitute(yyextra->aliasName,"\\","::")).data())});
                                           }
 					  yyextra->aliasName.resize(0);
   					}
@@ -2010,33 +2000,37 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
   					  unput(';');
 					  BEGIN(FindMembers);
   					}
-<QtPropType>"const"|"volatile"|"unsigned"|"signed"|"long"|"short" {
-  				          yyextra->current->type+=yytext;
-  					}
 <QtPropType>{B}+			{
-  				          yyextra->current->type+=yytext;
+  				          yyextra->current->name+=yytext;
+  					}
+<QtPropType>"*"				{
+  					  yyextra->current->type+= yyextra->current->name;
+  					  yyextra->current->type+= yytext;
+  				          yyextra->current->name="";
   					}
 <QtPropType>({TSCOPE}"::")*{TSCOPE}	{
-  					  yyextra->current->type+=yytext;
-                                          BEGIN(QtPropName);
-  					}
-<QtPropName>{ID}			{
+  					  yyextra->current->type+= yyextra->current->name;
   					  yyextra->current->name=yytext;
-  					  BEGIN(QtPropAttr);
   					}
-<QtPropAttr>"READ"			{
+<QtPropType,QtPropAttr>{B}+"READ"{B}+	{
   					  yyextra->current->spec |= Entry::Readable;
 					  BEGIN(QtPropRead);
   					}
-<QtPropAttr>"WRITE"			{
+<QtPropType,QtPropAttr>{B}+"WRITE"{B}+	{
   					  yyextra->current->spec |= Entry::Writable;
 					  BEGIN(QtPropWrite);
   					}
-<QtPropAttr>"RESET"{B}+{ID}		{ // reset method => not supported yet
-  					}
-<QtPropAttr>"SCRIPTABLE"{B}+{ID}	{ // scriptable property => not supported yet
-  					}
-<QtPropAttr>"DESIGNABLE"{B}+{ID}	{ // designable property => not supported yet
+<QtPropType,QtPropAttr>{B}+"MEMBER"{B}+{ID}	| // member property => not supported yet
+<QtPropType,QtPropAttr>{B}+"RESET"{B}+{ID}	| // reset method => not supported yet
+<QtPropType,QtPropAttr>{B}+"SCRIPTABLE"{B}+{ID}	| // scriptable property => not supported yet
+<QtPropType,QtPropAttr>{B}+"DESIGNABLE"{B}+{ID}	| // designable property => not supported yet
+<QtPropType,QtPropAttr>{B}+"NOTIFY"{B}+{ID}	| // notify property => not supported yet
+<QtPropType,QtPropAttr>{B}+"REVISION"{B}+{ID}	| // revision property => not supported yet
+<QtPropType,QtPropAttr>{B}+"STORED"{B}+{ID}	| // stored property => not supported yet
+<QtPropType,QtPropAttr>{B}+"USER"{B}+{ID}	| // user property => not supported yet
+<QtPropType,QtPropAttr>{B}+"CONSTANT"{B}	| // constant property => not supported yet
+<QtPropType,QtPropAttr>{B}+"FINAL"{B}		{ // final property => not supported yet
+  					  BEGIN(QtPropAttr);
   					}
 <QtPropRead>{ID}			{
   					  yyextra->current->read = yytext;
@@ -2908,7 +2902,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                             *yyextra->pCopyRoundString+=yytext; 
 					  }
                                         }
-<CopyRound>[^"'()\n]+			{
+<CopyRound>[^"'()\n,]+			{
   					  *yyextra->pCopyRoundString+=yytext;
   					}
 <CopyRound>.				{
@@ -2958,7 +2952,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                             *yyextra->pCopyRoundGString+=yytext; 
 					  }
                                         }
-<GCopyRound>[^"'()\n/]+			{
+<GCopyRound>[^"'()\n\/,]+		{
   					  *yyextra->pCopyRoundGString+=yytext;
   					}
 <GCopyRound>.				{
@@ -3008,7 +3002,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                             *yyextra->pCopySquareGString+=yytext; 
                                           }
                                         }
-<GCopySquare>[^"\[\]\n/]+               {
+<GCopySquare>[^"\[\]\n\/,]+              {
                                           *yyextra->pCopySquareGString+=yytext;
                                         }
 <GCopySquare>.                          {
@@ -3049,7 +3043,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 					    *yyextra->pCopyCurlyString+=yytext; 
 					  }
                                         }
-<CopyCurly>[^"'{}\/\n]+			{
+<CopyCurly>[^"'{}\/\n,]+		{
   					  *yyextra->pCopyCurlyString+=yytext;
   					}
 <CopyCurly>"/"				{ *yyextra->pCopyCurlyString+=yytext; }
@@ -4532,12 +4526,12 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 <FuncQual>{BN}*"const"{BN}*       	{ // const member function
   					  lineCount(yyscanner) ; 
   					  yyextra->current->args += " const "; 
-					  yyextra->current->argList.constSpecifier=TRUE;
+					  yyextra->current->argList.setConstSpecifier(TRUE);
 					}
 <FuncQual>{BN}*"volatile"{BN}*    	{ // volatile member function
   					  lineCount(yyscanner) ; 
   					  yyextra->current->args += " volatile "; 
-					  yyextra->current->argList.volatileSpecifier=TRUE;
+					  yyextra->current->argList.setVolatileSpecifier(TRUE);
 					}
 <FuncQual>{BN}*"noexcept"{BN}*    	{ // noexcept qualifier
   					  lineCount(yyscanner) ; 
@@ -4555,25 +4549,25 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                         }
 <FuncQual>{BN}*"&"                      {
                                           yyextra->current->args += " &";
-                                          yyextra->current->argList.refQualifier=RefQualifierLValue;
+                                          yyextra->current->argList.setRefQualifier(RefQualifierLValue);
                                         }
 <FuncQual>{BN}*"&&"                     {
                                           yyextra->current->args += " &&";
-                                          yyextra->current->argList.refQualifier=RefQualifierRValue;
+                                          yyextra->current->argList.setRefQualifier(RefQualifierRValue);
                                         }
 
 <FuncQual,TrailingReturn>{BN}*"="{BN}*"0"{BN}*  	{ // pure virtual member function
   					  lineCount(yyscanner) ; 
 					  yyextra->current->args += " = 0"; 
 					  yyextra->current->virt = Pure; 
-					  yyextra->current->argList.pureSpecifier=TRUE;
+					  yyextra->current->argList.setPureSpecifier(TRUE);
                                           BEGIN(FuncQual);
 					}
 <FuncQual,TrailingReturn>{BN}*"="{BN}*"delete"{BN}*     { // C++11 explicitly delete member
                                           lineCount(yyscanner);
                                           yyextra->current->args += " = delete";
 					  yyextra->current->spec |= Entry::Delete;
-					  yyextra->current->argList.isDeleted=TRUE;
+					  yyextra->current->argList.setIsDeleted(TRUE);
                                           BEGIN(FuncQual);
                                         }
 <FuncQual,TrailingReturn>{BN}*"="{BN}*"default"{BN}*     { // C++11 explicitly defaulted constructor/assignment operator
@@ -4584,7 +4578,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                         }
 <FuncQual>{BN}*"->"{BN}*                {
                                           lineCount(yyscanner);
-                                          yyextra->current->argList.trailingReturnType = " -> ";
+                                          yyextra->current->argList.setTrailingReturnType(" -> ");
                                           yyextra->current->args += " -> ";
                                           BEGIN(TrailingReturn);
                                         }
@@ -4593,12 +4587,12 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
                                           BEGIN(FuncQual);
                                         }
 <TrailingReturn>.                       {
-                                          yyextra->current->argList.trailingReturnType+=yytext;
+                                          yyextra->current->argList.setTrailingReturnType(yyextra->current->argList.trailingReturnType()+yytext);
                                           yyextra->current->args+=yytext;
                                         }
 <TrailingReturn>\n                      {
                                           lineCount(yyscanner);
-                                          yyextra->current->argList.trailingReturnType+=yytext;
+                                          yyextra->current->argList.setTrailingReturnType(yyextra->current->argList.trailingReturnType()+yytext);
                                           yyextra->current->args+=' ';
                                         }
 <FuncRound,FuncFunc>{BN}*","{BN}*	{ 
@@ -4724,7 +4718,7 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
 <OldStyleArgs>"{"			{
                                           if (yyextra->current->argList.empty())
                                           {
-                                            yyextra->current->argList.noParameters=TRUE;
+                                            yyextra->current->argList.setNoParameters(TRUE);
                                           }
   					  yyextra->current->args = argListToString(yyextra->current->argList);
   					  unput('{');
@@ -6532,16 +6526,16 @@ OPERATOR  "operator"{B}*({ARITHOP}|{ASSIGNOP}|{LOGICOP}|{BITOP})
   					}
 <PrototypeQual>{B}*"const"{B}*    	{ 
   					  yyextra->current->args += " const "; 
-					  yyextra->current->argList.constSpecifier=TRUE;
+					  yyextra->current->argList.setConstSpecifier(TRUE);
 					}
 <PrototypeQual>{B}*"volatile"{B}* 	{ 
   					  yyextra->current->args += " volatile "; 
-					  yyextra->current->argList.volatileSpecifier=TRUE;
+					  yyextra->current->argList.setVolatileSpecifier(TRUE);
 					}
 <PrototypeQual>{B}*"="{B}*"0"{B}*	{ 
 					  yyextra->current->args += " = 0"; 
 					  yyextra->current->virt = Pure; 
-					  yyextra->current->argList.pureSpecifier=TRUE;
+					  yyextra->current->argList.setPureSpecifier(TRUE);
 					}
 <PrototypeQual>"throw"{B}*"("	        {
   					  yyextra->current->exception = "throw(";
@@ -6675,9 +6669,7 @@ static void initParser(yyscan_t yyscanner)
   yyextra->virt = Normal;
   yyextra->baseVirt = Normal;
   yyextra->isTypedef = FALSE;
-  yyextra->autoGroupStack.clear();
   yyextra->insideTryBlock = FALSE;
-  yyextra->autoGroupStack.setAutoDelete(TRUE);
   yyextra->insideFormula = FALSE;
   yyextra->insideCode=FALSE;
   yyextra->insideCli=Config_getBool(CPP_CLI_SUPPORT);

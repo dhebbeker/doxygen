@@ -20,6 +20,7 @@
 #include "template.h"
 #include <qlist.h>
 #include <stdio.h>
+#include "dirdef.h"
 
 class Definition;
 class ClassDef;
@@ -34,7 +35,6 @@ class FileDef;
 class FileList;
 class FileNameLinkedMap;
 class DirSDict;
-class DirList;
 class DirDef;
 class PageSDict;
 class GroupSDict;
@@ -46,8 +46,8 @@ class MemberSDict;
 class MemberDef;
 struct Argument;
 class ArgumentList;
-class MemberNameInfoSDict;
-struct MemberInfo;
+class MemberNameInfoLinkedMap;
+class MemberInfo;
 class MemberGroup;
 class MemberGroupSDict;
 class MemberGroupList;
@@ -348,7 +348,7 @@ class PageContext : public RefCountedContext, public TemplateStructIntf
 class MemberContext : public RefCountedContext, public TemplateStructIntf
 {
   public:
-    static MemberContext *alloc(MemberDef *md) { return new MemberContext(md); }
+    static MemberContext *alloc(const MemberDef *md) { return new MemberContext(md); }
 
     // TemplateStructIntf methods
     virtual TemplateVariant get(const char *name) const;
@@ -356,7 +356,7 @@ class MemberContext : public RefCountedContext, public TemplateStructIntf
     virtual int release() { return RefCountedContext::release(); }
 
   private:
-    MemberContext(MemberDef *);
+    MemberContext(const MemberDef *);
    ~MemberContext();
     class Private;
     Private *p;
@@ -1113,9 +1113,7 @@ class InheritedMemberInfoListContext : public RefCountedContext, public Template
 class AllMembersListContext : public RefCountedContext, public TemplateListIntf
 {
   public:
-    static AllMembersListContext *alloc()
-    { return new AllMembersListContext; }
-    static AllMembersListContext *alloc(const MemberNameInfoSDict *ml)
+    static AllMembersListContext *alloc(const MemberNameInfoLinkedMap &ml)
     { return new AllMembersListContext(ml); }
 
     // TemplateListIntf
@@ -1126,8 +1124,7 @@ class AllMembersListContext : public RefCountedContext, public TemplateListIntf
     virtual int release() { return RefCountedContext::release(); }
 
   private:
-    AllMembersListContext();
-    AllMembersListContext(const MemberNameInfoSDict *ml);
+    AllMembersListContext(const MemberNameInfoLinkedMap &ml);
    ~AllMembersListContext();
     class Private;
     Private *p;
