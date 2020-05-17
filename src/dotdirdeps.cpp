@@ -295,6 +295,7 @@ struct DotDirProperty
 {
   bool incomplete = false;
   bool orphaned = false;
+  bool truncated = false;
 };
 
 typedef std::map<const DirDef * const, DotDirProperty, compareDirDefs> PropertyMap;
@@ -339,6 +340,55 @@ static DirList getAncestorsLimited(const DirList& basedOnDirectories, PropertyMa
     getAncestorsLimited(basedOnDirectory, ancestorList, directoryProperties, startLevel);
   }
   return ancestorList;
+}
+
+/**
+ * ### draw_limited(x)
+ - if x is parent:
+     - if children within limit `max_successor_depth`
+       1. open cluster
+       2. for each child: draw_limited(child)
+       3. close cluster
+     - else
+      - draw_directory(properties + "truncated")
+ - else
+   1. draw_directory(properties)
+ */
+static void drawTrees(const FTextStream &outputStream, const DirList& listOfTreeRoots, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
+{
+  for (const auto directory : listOfTreeRoots)
+  {
+    auto directoryProperties = directoryProperties[&directory];
+    if (directory->subDirs().empty())
+    {
+      drawDirectory(directory, directoryProperties);
+    }
+    else
+    {
+      if (((directory->level() + 1) - startLevel) > Config_getInt(MAX_DOT_GRAPH_CHILDREN))
+      {
+        directoryProperties.truncated = true;
+        drawDirectory(directory, directoryProperties);
+      }
+      else
+      {
+        {  // open cluster
+          static const auto fontName = Config_getString(DOT_FONTNAME);
+          static const auto fontSize = Config_getInt(DOT_FONTSIZE);
+          outputStream << "  subgraph cluster" << directory->parent()->getOutputFileBase() << " {\n"
+              << "    graph [ bgcolor=\""
+              << getDirectoryBackgroundColorCode(directory->parent()->level())
+              << "\", pencolor=\"black\", label=\"" << directory->parent()->shortName()
+              << "\" fontname=\"" << fontName << "\", fontsize=\"" << fontSize << "\", URL=\""
+              << directory->parent()->getOutputFileBase() << Doxygen::htmlFileExtension << "\"]\n";
+        }
+        drawTrees(outputStream, directory->subDirs(), directoryProperties, startLevel);
+        {  //close cluster
+          outputStream << "  }\n";
+        }
+      }
+    }
+  }
 }
 
 void writeDotDirDependencyGraph(const FTextStream &outputStream,
