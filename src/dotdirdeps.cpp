@@ -114,6 +114,7 @@ Determine recursively children and *do not* respect limits.
  */
 
 #include <algorithm>
+#include <map>
 #include "dotdirdeps.h"
 
 #include "ftextstream.h"
@@ -288,6 +289,56 @@ static DirList getDependees(const DirList& dependents)
   const auto last = std::unique(dependees.begin(), dependees.end());
   dependees.erase(last, dependees.end());
   return dependees;
+}
+
+struct DotDirProperty
+{
+  bool incomplete = false;
+  bool orphaned = false;
+};
+
+typedef std::map<const DirDef * const, DotDirProperty, compareDirDefs> PropertyMap;
+typedef decltype(DirDef::level()) DirectoryLevel;
+
+/**
+ * Buts only the elder in the
+### Ancestor(x)
+ 1. if x in ancestor list, return; else
+ 2. mark x as "incomplete" (properties list)
+ 3. if parent of x would exceed limit mark as "orphaned"; put x to ancestor list and return; else
+ 4. if x has no parent; put x to ancestor list and return; else
+ 5. Ancestor(p)
+ */
+static void getAncestorsLimited(const DirDef& basedOnDirectory, DirList& ancestors, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
+{
+  if (std::find(ancestors.begin(), ancestors.end(), &basedOnDirectory) == ancestors.end())
+  {
+    directoryProperties[&basedOnDirectory].incomplete = true;
+    if (basedOnDirectory.parent() == nullptr)
+    {
+      ancestors.push_back(&basedOnDirectory);
+    }
+    else if (std::abs(
+        startLevel - basedOnDirectory.parent().level()) > Config_getInt(MAX_DOT_GRAPH_PARENTS))
+    {
+      directoryProperties[&basedOnDirectory].orphaned = true;
+      ancestors.push_back(&basedOnDirectory);
+    }
+    else
+    {
+      getAncestorsLimited(basedOnDirectory.parent(), ancestors, directoryProperties, startLevel);
+    }
+  }
+}
+
+static DirList getAncestorsLimited(const DirList& basedOnDirectories, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
+{
+  DirList ancestorList;
+  for (const auto basedOnDirectory : basedOnDirectories)
+  {
+    getAncestorsLimited(basedOnDirectory, ancestorList, directoryProperties, startLevel);
+  }
+  return ancestorList;
 }
 
 void writeDotDirDependencyGraph(const FTextStream &outputStream,
