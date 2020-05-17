@@ -293,9 +293,9 @@ static DirList getDependees(const DirList& dependents)
 
 struct DotDirProperty
 {
-  bool incomplete = false;
-  bool orphaned = false;
-  bool truncated = false;
+  bool isIncomplete = false;
+  bool isOrphaned = false;
+  bool isTruncated = false;
 };
 
 typedef std::map<const DirDef * const, DotDirProperty, compareDirDefs> PropertyMap;
@@ -314,7 +314,7 @@ static void getAncestorsLimited(const DirDef& basedOnDirectory, DirList& ancesto
 {
   if (std::find(ancestors.begin(), ancestors.end(), &basedOnDirectory) == ancestors.end())
   {
-    directoryProperties[&basedOnDirectory].incomplete = true;
+    directoryProperties[&basedOnDirectory].isIncomplete = true;
     if (basedOnDirectory.parent() == nullptr)
     {
       ancestors.push_back(&basedOnDirectory);
@@ -322,7 +322,7 @@ static void getAncestorsLimited(const DirDef& basedOnDirectory, DirList& ancesto
     else if (std::abs(
         startLevel - basedOnDirectory.parent().level()) > Config_getInt(MAX_DOT_GRAPH_PARENTS))
     {
-      directoryProperties[&basedOnDirectory].orphaned = true;
+      directoryProperties[&basedOnDirectory].isOrphaned = true;
       ancestors.push_back(&basedOnDirectory);
     }
     else
@@ -340,6 +340,24 @@ static DirList getAncestorsLimited(const DirList& basedOnDirectories, PropertyMa
     getAncestorsLimited(basedOnDirectory, ancestorList, directoryProperties, startLevel);
   }
   return ancestorList;
+}
+
+void drawDirectory(const FTextStream &outputStream, const DirDef* const directory, const DotDirProperty& property)
+{
+  const char *borderColor = nullptr;
+  if (isTruncated)
+  {
+    borderColor = "red";
+  }
+  else
+  {
+    borderColor = "black";
+  }
+
+  outputStream << "  " << directory->getOutputFileBase() << " [shape=box, label=\"" << directory->shortName()
+      << "\", style=\"filled\", fillcolor=\"" << getDirectoryBackgroundColorCode(directory->level()) << "\","
+      << " pencolor=\"" << borderColor << "\", URL=\"" << directory->getOutputFileBase()
+      << Doxygen::htmlFileExtension << "\"];\n";
 }
 
 /**
@@ -367,7 +385,7 @@ static void drawTrees(const FTextStream &outputStream, const DirList& listOfTree
     {
       if (((directory->level() + 1) - startLevel) > Config_getInt(MAX_DOT_GRAPH_CHILDREN))
       {
-        directoryProperties.truncated = true;
+        directoryProperties.isTruncated = true;
         drawDirectory(directory, directoryProperties);
       }
       else
