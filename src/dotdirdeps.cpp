@@ -166,6 +166,8 @@ static std::size_t getMaxDirectoryDepth()
   return 3;  //! @todo use a parameter for the max depth (see Config_getInt)
 }
 
+typedef std::vector<std::add_pointer_t<std::add_const_t<std::remove_pointer_t<DirList::value_type>>>> ConstDirList;
+
 /**
  * returns a DOT color name according to the directory depth
  * @param depthIndex any number
@@ -271,9 +273,9 @@ Add each node only once.
  * @param dependents (dependers which depend on the dependees)
  * @return
  */
-static DirList getDependees(const DirList& dependents)
+static ConstDirList getDependees(const DirList& dependents)
 {
-  DirList dependees;
+  ConstDirList dependees;
   for(const auto dependent : dependents)
   {
     QDictIterator<UsedDir> usedDirectoriesIterator(*dependent->usedDirs());
