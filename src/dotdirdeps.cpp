@@ -409,6 +409,24 @@ static void drawTrees(const FTextStream &outputStream, const DirList& listOfTree
   }
 }
 
+/** Backtrace ancestors until one is found, which is within the limit to be drawn.
+ *
+ * @param directory
+ * @param startLevel
+ * @return
+ */
+static DirDef& getVisibleAncestor(const DirDef& directory, const DirectoryLevel startLevel)
+{
+  if ((directory.level() - startLevel) <= Config_getInt(MAX_DOT_GRAPH_DEPTH))
+  {
+    return directory;
+  }
+  else
+  {
+    return getVisibleAncestor(*directory.parent());
+  }
+}
+
 typedef std::vector<const DirRelation*> DirRelations;
 
 /**
