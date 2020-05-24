@@ -409,7 +409,7 @@ static void drawTrees(const FTextStream &outputStream, const DirList& listOfTree
   }
 }
 
-typedef std::vector<const DirRelation*> Dependencies;
+typedef std::vector<const DirRelation*> DirRelations;
 
 /**
  *
@@ -426,9 +426,9 @@ typedef std::vector<const DirRelation*> Dependencies;
  * @param listOfDependencies
  * @param linkRelations
  */
-static Dependencies getDependencies(const DirList& allNonAncestorDirectories)
+static DirRelations getDirRelations(const DirList& allNonAncestorDirectories)
 {
-  Dependencies dependencies;
+  DirRelations relations;
   for (const auto subtree : allNonAncestorDirectories)
   {
     // check all dependencies of the subtree itself
@@ -445,26 +445,27 @@ static Dependencies getDependencies(const DirList& allNonAncestorDirectories)
       {
         const auto dependency = new DirRelation(relationName, &visibleDependent, &visibleDependee);
         Doxygen::dirRelations.append(relationName, dependency);
-        dependencies.push_back(dependency);
+        relations.push_back(dependency);
       }
     }
 
     // check the sub-directories of the subtree
-    dependencies += getDependencies(subtree->subDirs());
+    relations += getDirRelations(subtree->subDirs());
   }
+  return relations;
 }
 
-static void drawDependencies(const FTextStream& outputStream, const Dependencies& listOfDependencies, const bool linkRelations)
+static void drawRelations(const FTextStream& outputStream, const DirRelations& listOfRelations, const bool linkRelations)
 {
-  for (const auto dependency : listOfDependencies)
+  for (const auto relation : listOfRelations)
   {
-    const auto destination = dependency->destination();
-    outputStream << "  " << dependency->source()->getOutputFileBase() << "->"
+    const auto destination = relation->destination();
+    outputStream << "  " << relation->source()->getOutputFileBase() << "->"
         << destination->getOutputFileBase() << " [headlabel=\"" << destination->filePairs().count()
         << "\", labeldistance=1.5";
     if (linkRelations)
     {
-      outputStream << " headhref=\"" << dependency->getOutputFileBase()
+      outputStream << " headhref=\"" << relation->getOutputFileBase()
           << Doxygen::htmlFileExtension << "\"";
     }
     outputStream << "];\n";
@@ -482,8 +483,8 @@ void writeDotDirDependencyGraph(const FTextStream &outputStream,
   drawTrees(outputStream, listOfTreeRoots);
   const auto allNonAncestorDirectories = originalDirectory + successorsOfOriginalDirectory
       + dependeeDirectories + getSuccessors(dependeeDirectories);
-  const auto listOfDependencies = getDependencies(allNonAncestorDirectories);
-  drawDependencies(outputStream, listOfDependencies, linkRelations);
+  const auto listOfRelations = getDirRelations(allNonAncestorDirectories);
+  drawRelations(outputStream, listOfRelations, linkRelations);
 }
 
 void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
