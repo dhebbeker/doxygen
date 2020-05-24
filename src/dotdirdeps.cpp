@@ -409,6 +409,68 @@ static void drawTrees(const FTextStream &outputStream, const DirList& listOfTree
   }
 }
 
+typedef std::vector<const DirRelation*> Dependencies;
+
+/**
+ *
+ can only be determined, when the complete and not truncated set of nodes is known.
+ determines all dependencies within a set, respecting the limits
+ 1. Take the ancestor list and walk through each tree. For each tree:
+ 2. Walk trough the tree (using any algorithm). For each node x:
+ 3. For each dependency d_x of x consisting of the dependent d_x_from and the dependee d_x_to
+   1. p = visible_ancestor(d_x_from)
+   2. q = visible_ancestor(d_x_to)
+   3. add relation p -> q to list of dependencies
+
+ * @param outputStream
+ * @param listOfDependencies
+ * @param linkRelations
+ */
+static Dependencies getDependencies(const DirList& allNonAncestorDirectories)
+{
+  Dependencies dependencies;
+  for (const auto subtree : allNonAncestorDirectories)
+  {
+    // check all dependencies of the subtree itself
+    QDictIterator<UsedDir> udi(*subtree->usedDirs());
+    UsedDir *udir;
+    for (udi.toFirst(); (udir = udi.current()); ++udi) // foreach used dir
+    {
+      const DirDef &visibleDependent = getVisibleAncestor(subtree);
+      const UsedDir &visibleDependee = getVisibleAncestor(udir);
+      QCString relationName;
+      relationName.sprintf("dir_%06d_%06d", visibleDependent.dirCount(),
+          visibleDependee.dirCount());
+      if (Doxygen::dirRelations.find(relationName) == 0)
+      {
+        const auto dependency = new DirRelation(relationName, &visibleDependent, &visibleDependee);
+        Doxygen::dirRelations.append(relationName, dependency);
+        dependencies.push_back(dependency);
+      }
+    }
+
+    // check the sub-directories of the subtree
+    dependencies += getDependencies(subtree->subDirs());
+  }
+}
+
+static void drawDependencies(const FTextStream& outputStream, const Dependencies& listOfDependencies, const bool linkRelations)
+{
+  for (const auto dependency : listOfDependencies)
+  {
+    const auto destination = dependency->destination();
+    outputStream << "  " << dependency->source()->getOutputFileBase() << "->"
+        << destination->getOutputFileBase() << " [headlabel=\"" << destination->filePairs().count()
+        << "\", labeldistance=1.5";
+    if (linkRelations)
+    {
+      outputStream << " headhref=\"" << dependency->getOutputFileBase()
+          << Doxygen::htmlFileExtension << "\"";
+    }
+    outputStream << "];\n";
+  }
+}
+
 void writeDotDirDependencyGraph(const FTextStream &outputStream,
     const DirDef *const originalDirectoryPointer, const bool linkRelations)
 {
