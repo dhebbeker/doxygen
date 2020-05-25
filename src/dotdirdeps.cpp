@@ -300,7 +300,19 @@ struct DotDirProperty
   bool isTruncated = false;
 };
 
-typedef std::map<const DirDef * const, DotDirProperty, compareDirDefs> PropertyMap;
+template<typename Function, Function * function>
+struct Functor
+{
+    template<typename Iterator1, typename Iterator2>
+    bool operator()(Iterator1 lhs, Iterator2 rhs) const
+    {
+        return function(*lhs, *rhs);
+     }
+};
+
+#define SpecializeFunctor(function) Functor<decltype(function), &function>
+
+typedef std::map<const DirDef * const, DotDirProperty, SpecializeFunctor(compareDirDefs)> PropertyMap;
 typedef decltype(DirDef::level()) DirectoryLevel;
 
 /**
