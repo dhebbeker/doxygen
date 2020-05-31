@@ -252,13 +252,13 @@ static void writeDotDirDepSubGraph(FTextStream &t, const DirDef *const dd,
   }
 }
 
-static ConstDirList getSuccessors(const SubDirList& nextLevelSuccessors)
+static ConstDirList getSuccessors(const ConstDirList& nextLevelSuccessors)
 {
   ConstDirList successors;
   for (decltype(successors)::value_type successor : nextLevelSuccessors)
   {
     successors += successor;
-    successors += getSuccessors(successor->subDirs());
+    successors += getSuccessors(makeConstCopy(successor->subDirs()));
   }
   return successors;
 }
@@ -306,7 +306,7 @@ struct Functor
     template<typename Iterator1, typename Iterator2>
     bool operator()(Iterator1 lhs, Iterator2 rhs) const
     {
-        return function(*lhs, *rhs);
+        return function(lhs, rhs);
      }
 };
 
@@ -386,7 +386,7 @@ void drawDirectory(FTextStream &outputStream, const DirDef* const directory, con
  - else
    1. draw_directory(properties)
  */
-static void drawTrees(FTextStream &outputStream, const SubDirList& listOfTreeRoots, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
+static void drawTrees(FTextStream &outputStream, const ConstDirList& listOfTreeRoots, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
 {
   for (const auto directory : listOfTreeRoots)
   {
@@ -414,7 +414,7 @@ static void drawTrees(FTextStream &outputStream, const SubDirList& listOfTreeRoo
               << "\" fontname=\"" << fontName << "\", fontsize=\"" << fontSize << "\", URL=\""
               << directory->parent()->getOutputFileBase() << Doxygen::htmlFileExtension << "\"]\n";
         }
-        drawTrees(outputStream, directory->subDirs(), directoryProperties, startLevel);
+        drawTrees(outputStream, makeConstCopy(directory->subDirs()), directoryProperties, startLevel);
         {  //close cluster
           outputStream << "  }\n";
         }
@@ -458,7 +458,7 @@ typedef std::vector<const DirRelation*> DirRelations;
  * @param listOfDependencies
  * @param linkRelations
  */
-static DirRelations getDirRelations(const DirList& allNonAncestorDirectories, const DirectoryLevel startLevel)
+static DirRelations getDirRelations(const ConstDirList& allNonAncestorDirectories, const DirectoryLevel startLevel)
 {
   DirRelations relations;
   for (const auto subtree : allNonAncestorDirectories)
@@ -483,7 +483,7 @@ static DirRelations getDirRelations(const DirList& allNonAncestorDirectories, co
     }
 
     // check the sub-directories of the subtree
-    relations += getDirRelations(subtree->subDirs(), startLevel);
+    relations += getDirRelations(makeConstCopy(subtree->subDirs()), startLevel);
   }
   return relations;
 }
@@ -509,13 +509,17 @@ void writeDotDirDependencyGraph(FTextStream &outputStream,
     const DirDef *const originalDirectoryPointer, const bool linkRelations)
 {
   PropertyMap directoryDrawingProperties;
-  const auto successorsOfOriginalDirectory = getSuccessors(originalDirectoryPointer->subDirs());
-  const auto dependeeDirectories = getDependees(successorsOfOriginalDirectory + originalDirectoryPointer);
-  const auto listOfTreeRoots = getAncestorsLimited(dependeeDirectories + originalDirectoryPointer, directoryDrawingProperties, originalDirectoryPointer->level());
-  drawTrees(outputStream, listOfTreeRoots);
-  const auto allNonAncestorDirectories = originalDirectory + successorsOfOriginalDirectory
+  const auto startLevel = originalDirectoryPointer->level();
+  const auto successorsOfOriginalDirectory = getSuccessors(
+      makeConstCopy(originalDirectoryPointer->subDirs()));
+  const auto dependeeDirectories = getDependees(
+      successorsOfOriginalDirectory + originalDirectoryPointer);
+  const auto listOfTreeRoots = getAncestorsLimited(dependeeDirectories + originalDirectoryPointer,
+      directoryDrawingProperties, startLevel);
+  drawTrees(outputStream, listOfTreeRoots, directoryDrawingProperties, startLevel);
+  const auto allNonAncestorDirectories = successorsOfOriginalDirectory + originalDirectoryPointer
       + dependeeDirectories + getSuccessors(dependeeDirectories);
-  const auto listOfRelations = getDirRelations(allNonAncestorDirectories);
+  const auto listOfRelations = getDirRelations(allNonAncestorDirectories, startLevel);
   drawRelations(outputStream, listOfRelations, linkRelations);
 }
 
