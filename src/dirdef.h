@@ -22,6 +22,7 @@
 #include <vector>
 #include <qglobal.h>
 #include <qcstring.h>
+#include "type_utils.hpp"
 
 class FileList;
 class ClassSDict;
@@ -35,6 +36,9 @@ class DirDef;
 
 /** A list of directories. */
 typedef std::vector<DirDef*> DirList;
+
+/// same container type as DirList but containing `const` objects
+typedef MakeConstValueTypeContainer<DirList> ConstDirList;
 
 bool compareDirDefs(const DirDef *item1, const DirDef *item2);
 
