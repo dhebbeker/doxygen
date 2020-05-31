@@ -166,7 +166,7 @@ static std::size_t getMaxDirectoryDepth()
   return 3;  //! @todo use a parameter for the max depth (see Config_getInt)
 }
 
-typedef std::vector<std::add_pointer_t<std::add_const_t<std::remove_pointer_t<DirList::value_type>>>> ConstDirList;
+typedef std::remove_const_t<std::remove_reference_t<decltype(std::declval<DirDef>().subDirs())>> SubDirList;
 
 /**
  * returns a DOT color name according to the directory depth
@@ -252,10 +252,10 @@ static void writeDotDirDepSubGraph(FTextStream &t, const DirDef *const dd,
   }
 }
 
-static DirList getSuccessors(const DirList &nextLevelSuccessors)
+static ConstDirList getSuccessors(const SubDirList& nextLevelSuccessors)
 {
-  DirList successors;
-  for (const auto successor : nextLevelSuccessors)
+  ConstDirList successors;
+  for (decltype(successors)::value_type successor : nextLevelSuccessors)
   {
     successors += successor;
     successors += getSuccessors(successor->subDirs());
@@ -273,7 +273,7 @@ Add each node only once.
  * @param dependents (dependers which depend on the dependees)
  * @return
  */
-static ConstDirList getDependees(const DirList& dependents)
+static auto getDependees(const ConstDirList& dependents)
 {
   ConstDirList dependees;
   for(const auto dependent : dependents)
@@ -313,7 +313,7 @@ struct Functor
 #define SpecializeFunctor(function) Functor<decltype(function), &function>
 
 typedef std::map<const DirDef * const, DotDirProperty, SpecializeFunctor(compareDirDefs)> PropertyMap;
-typedef decltype(DirDef::level()) DirectoryLevel;
+typedef decltype(std::declval<DirDef>().level()) DirectoryLevel;
 
 /**
  * Buts only the elder in the
@@ -324,7 +324,7 @@ typedef decltype(DirDef::level()) DirectoryLevel;
  4. if x has no parent; put x to ancestor list and return; else
  5. Ancestor(p)
  */
-static void getAncestorsLimited(const DirDef& basedOnDirectory, DirList& ancestors, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
+static void getAncestorsLimited(const DirDef& basedOnDirectory, ConstDirList& ancestors, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
 {
   if (std::find(ancestors.begin(), ancestors.end(), &basedOnDirectory) == ancestors.end())
   {
@@ -334,32 +334,32 @@ static void getAncestorsLimited(const DirDef& basedOnDirectory, DirList& ancesto
       ancestors.push_back(&basedOnDirectory);
     }
     else if (std::abs(
-        startLevel - basedOnDirectory.parent().level()) > Config_getInt(MAX_DOT_GRAPH_PARENTS))
+        startLevel - basedOnDirectory.parent()->level()) > Config_getInt(MAX_DOT_GRAPH_PARENTS))
     {
       directoryProperties[&basedOnDirectory].isOrphaned = true;
       ancestors.push_back(&basedOnDirectory);
     }
     else
     {
-      getAncestorsLimited(basedOnDirectory.parent(), ancestors, directoryProperties, startLevel);
+      getAncestorsLimited(*(basedOnDirectory.parent()), ancestors, directoryProperties, startLevel);
     }
   }
 }
 
-static DirList getAncestorsLimited(const DirList& basedOnDirectories, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
+static ConstDirList getAncestorsLimited(const ConstDirList& basedOnDirectories, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
 {
-  DirList ancestorList;
+  ConstDirList ancestorList;
   for (const auto basedOnDirectory : basedOnDirectories)
   {
-    getAncestorsLimited(basedOnDirectory, ancestorList, directoryProperties, startLevel);
+    getAncestorsLimited(*basedOnDirectory, ancestorList, directoryProperties, startLevel);
   }
   return ancestorList;
 }
 
-void drawDirectory(const FTextStream &outputStream, const DirDef* const directory, const DotDirProperty& property)
+void drawDirectory(FTextStream &outputStream, const DirDef* const directory, const DotDirProperty& property)
 {
   const char *borderColor = nullptr;
-  if (isTruncated)
+  if (property.isTruncated)
   {
     borderColor = "red";
   }
@@ -386,21 +386,21 @@ void drawDirectory(const FTextStream &outputStream, const DirDef* const director
  - else
    1. draw_directory(properties)
  */
-static void drawTrees(const FTextStream &outputStream, const DirList& listOfTreeRoots, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
+static void drawTrees(FTextStream &outputStream, const SubDirList& listOfTreeRoots, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
 {
   for (const auto directory : listOfTreeRoots)
   {
-    auto directoryProperties = directoryProperties[&directory];
+    auto directoryProperty = directoryProperties[directory];
     if (directory->subDirs().empty())
     {
-      drawDirectory(directory, directoryProperties);
+      drawDirectory(outputStream, directory, directoryProperty);
     }
     else
     {
       if (((directory->level() + 1) - startLevel) > Config_getInt(MAX_DOT_GRAPH_CHILDREN))
       {
-        directoryProperties.isTruncated = true;
-        drawDirectory(directory, directoryProperties);
+        directoryProperty.isTruncated = true;
+        drawDirectory(outputStream, directory, directoryProperty);
       }
       else
       {
@@ -429,7 +429,7 @@ static void drawTrees(const FTextStream &outputStream, const DirList& listOfTree
  * @param startLevel
  * @return
  */
-static DirDef& getVisibleAncestor(const DirDef& directory, const DirectoryLevel startLevel)
+static const DirDef& getVisibleAncestor(const DirDef& directory, const DirectoryLevel startLevel)
 {
   if ((directory.level() - startLevel) <= Config_getInt(MAX_DOT_GRAPH_DEPTH))
   {
@@ -437,7 +437,7 @@ static DirDef& getVisibleAncestor(const DirDef& directory, const DirectoryLevel 
   }
   else
   {
-    return getVisibleAncestor(*directory.parent());
+    return getVisibleAncestor(*directory.parent(), startLevel);
   }
 }
 
@@ -458,42 +458,43 @@ typedef std::vector<const DirRelation*> DirRelations;
  * @param listOfDependencies
  * @param linkRelations
  */
-static DirRelations getDirRelations(const DirList& allNonAncestorDirectories)
+static DirRelations getDirRelations(const DirList& allNonAncestorDirectories, const DirectoryLevel startLevel)
 {
   DirRelations relations;
   for (const auto subtree : allNonAncestorDirectories)
   {
     // check all dependencies of the subtree itself
     QDictIterator<UsedDir> udi(*subtree->usedDirs());
-    UsedDir *udir;
-    for (udi.toFirst(); (udir = udi.current()); ++udi) // foreach used dir
+    const DirDef* usedDirectory;
+    for (udi.toFirst(); (usedDirectory = udi.current()->dir()); ++udi) // foreach used dir
     {
-      const DirDef &visibleDependent = getVisibleAncestor(subtree);
-      const UsedDir &visibleDependee = getVisibleAncestor(udir);
+      const auto& visibleDependent = getVisibleAncestor(*subtree, startLevel);
+      const auto& visibleDependee = getVisibleAncestor(*usedDirectory, startLevel);
       QCString relationName;
       relationName.sprintf("dir_%06d_%06d", visibleDependent.dirCount(),
           visibleDependee.dirCount());
       if (Doxygen::dirRelations.find(relationName) == 0)
       {
-        const auto dependency = new DirRelation(relationName, &visibleDependent, &visibleDependee);
+        auto const visibleUsedDirectory = new UsedDir(&visibleDependee, &visibleDependee != usedDirectory);
+        const auto dependency = new DirRelation(relationName, &visibleDependent, visibleUsedDirectory);
         Doxygen::dirRelations.append(relationName, dependency);
         relations.push_back(dependency);
       }
     }
 
     // check the sub-directories of the subtree
-    relations += getDirRelations(subtree->subDirs());
+    relations += getDirRelations(subtree->subDirs(), startLevel);
   }
   return relations;
 }
 
-static void drawRelations(const FTextStream& outputStream, const DirRelations& listOfRelations, const bool linkRelations)
+static void drawRelations(FTextStream& outputStream, const DirRelations& listOfRelations, const bool linkRelations)
 {
   for (const auto relation : listOfRelations)
   {
     const auto destination = relation->destination();
     outputStream << "  " << relation->source()->getOutputFileBase() << "->"
-        << destination->getOutputFileBase() << " [headlabel=\"" << destination->filePairs().count()
+        << destination->dir()->getOutputFileBase() << " [headlabel=\"" << destination->filePairs().count()
         << "\", labeldistance=1.5";
     if (linkRelations)
     {
@@ -504,14 +505,13 @@ static void drawRelations(const FTextStream& outputStream, const DirRelations& l
   }
 }
 
-void writeDotDirDependencyGraph(const FTextStream &outputStream,
+void writeDotDirDependencyGraph(FTextStream &outputStream,
     const DirDef *const originalDirectoryPointer, const bool linkRelations)
 {
-  const auto originalDirectory
-  { originalDirectoryPointer };
+  PropertyMap directoryDrawingProperties;
   const auto successorsOfOriginalDirectory = getSuccessors(originalDirectoryPointer->subDirs());
   const auto dependeeDirectories = getDependees(successorsOfOriginalDirectory + originalDirectoryPointer);
-  const auto listOfTreeRoots = getAncestorsLimited(originalDirectory + dependeeDirectories);
+  const auto listOfTreeRoots = getAncestorsLimited(dependeeDirectories + originalDirectoryPointer, directoryDrawingProperties, originalDirectoryPointer->level());
   drawTrees(outputStream, listOfTreeRoots);
   const auto allNonAncestorDirectories = originalDirectory + successorsOfOriginalDirectory
       + dependeeDirectories + getSuccessors(dependeeDirectories);
