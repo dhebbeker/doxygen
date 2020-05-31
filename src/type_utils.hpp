@@ -45,4 +45,20 @@ using MakeConstValueTypeContainer = typename MakeConstValueTypeContainerHelper<C
 
 /** @}*/ // end group Group_MakeConstValueTypeContainer
 
+/**
+ * Create a copy of sourceContainer to a new container with the value type `const` qualified.
+ * @param sourceContainer original container
+ * @return clone of original container with `const` qualified values
+ */
+template<class Container>
+auto makeConstCopy(const Container& sourceContainer)
+{
+  MakeConstValueTypeContainer<Container> constContainer(sourceContainer.size());
+  for(const auto element : sourceContainer)
+  {
+    constContainer.push_back(element);
+  }
+  return constContainer;
+}
+
 #endif /* TYPE_UTILS_HPP */
