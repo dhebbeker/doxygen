@@ -166,8 +166,6 @@ static std::size_t getMaxDirectoryDepth()
   return 3;  //! @todo use a parameter for the max depth (see Config_getInt)
 }
 
-typedef std::remove_const_t<std::remove_reference_t<decltype(std::declval<DirDef>().subDirs())>> SubDirList;
-
 /**
  * returns a DOT color name according to the directory depth
  * @param depthIndex any number
