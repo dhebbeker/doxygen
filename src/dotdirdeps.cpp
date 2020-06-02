@@ -161,11 +161,6 @@ std::vector<T>& operator+=(std::vector<T> &A, const T &B)
   return A;
 }
 
-static std::size_t getMaxDirectoryDepth()
-{
-  return 3;  //! @todo use a parameter for the max depth (see Config_getInt)
-}
-
 /**
  * returns a DOT color name according to the directory depth
  * @param depthIndex any number
@@ -503,7 +498,7 @@ static void drawRelations(FTextStream& outputStream, const DirRelations& listOfR
   }
 }
 
-void writeDotDirDependencyGraph(FTextStream &outputStream,
+static void writeDotDirDependencyGraph(FTextStream &outputStream,
     const DirDef *const originalDirectoryPointer, const bool linkRelations)
 {
   PropertyMap directoryDrawingProperties;
@@ -519,122 +514,6 @@ void writeDotDirDependencyGraph(FTextStream &outputStream,
       + dependeeDirectories + getSuccessors(dependeeDirectories);
   const auto listOfRelations = getDirRelations(allNonAncestorDirectories, startLevel);
   drawRelations(outputStream, listOfRelations, linkRelations);
-}
-
-void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
-{
-  int fontSize = Config_getInt(DOT_FONTSIZE);
-  QCString fontName = Config_getString(DOT_FONTNAME);
-  t << "digraph \"" << dd->displayName() << "\" {\n";
-  if (Config_getBool(DOT_TRANSPARENT))
-  {
-    t << "  bgcolor=transparent;\n";
-  }
-  t << "  compound=true\n";
-  t << "  node [ fontsize=\"" << fontSize << "\", fontname=\"" << fontName << "\"];\n";
-  t << "  edge [ labelfontsize=\"" << fontSize << "\", labelfontname=\"" << fontName << "\"];\n";
-
-  QDict<DirDef> dirsInGraph(257);
-
-  dirsInGraph.insert(dd->getOutputFileBase(),dd);
-  if (dd->parent())
-  {
-    t << "  subgraph cluster" << dd->parent()->getOutputFileBase() << " {\n";
-    t << "    graph [ bgcolor=\"" << getDirectoryBackgroundColorCode(dd->parent()->level()) << "\", pencolor=\"black\", label=\""
-      << dd->parent()->shortName() 
-      << "\" fontname=\"" << fontName << "\", fontsize=\"" << fontSize << "\", URL=\"";
-    t << dd->parent()->getOutputFileBase() << Doxygen::htmlFileExtension;
-    t << "\"]\n";
-  }
-  writeDotDirDepSubGraph(t, dd, dirsInGraph, getMaxDirectoryDepth());
-  if (dd->parent())
-  {
-    t << "  }\n";
-  }
-
-  // add nodes for other used directories
-  {
-    QDictIterator<UsedDir> udi(*dd->usedDirs());
-    UsedDir *udir;
-    //printf("*** For dir %s\n",shortName().data());
-    for (udi.toFirst();(udir=udi.current());++udi) 
-      // for each used dir (=directly used or a parent of a directly used dir)
-    {
-      const DirDef *usedDir=udir->dir();
-      const DirDef *dir=dd;
-      while (dir)
-      {
-        //printf("*** check relation %s->%s same_parent=%d !%s->isParentOf(%s)=%d\n",
-        //    dir->shortName().data(),usedDir->shortName().data(),
-        //    dir->parent()==usedDir->parent(),
-        //    usedDir->shortName().data(),
-        //    shortName().data(),
-        //    !usedDir->isParentOf(this)
-        //    );
-        //! @todo consider adding used directories, which have a relation over more "generations"
-        //!       (grandparents, ...)
-        if (dir!=usedDir && dir->parent()==usedDir->parent() && 
-            !usedDir->isParentOf(dd))
-          // include if both have the same parent (or no parent)
-        {
-          t << "  " << usedDir->getOutputFileBase() << " [shape=box label=\"" 
-            << usedDir->shortName() << "\"";
-          if (usedDir->isCluster())
-          {
-            if (!Config_getBool(DOT_TRANSPARENT))
-            {
-              t << " fillcolor=\"white\" style=\"filled\"";
-            }
-            t << " color=\"red\"";
-          }
-          t << " URL=\"" << usedDir->getOutputFileBase() 
-            << Doxygen::htmlFileExtension << "\"];\n";
-          dirsInGraph.insert(usedDir->getOutputFileBase(),usedDir);
-          break;
-        }
-        dir=dir->parent();
-      }
-    }
-  }
-
-  // add relations between all selected directories
-  const DirDef *dir;
-  QDictIterator<DirDef> di(dirsInGraph);
-  for (;(dir=di.current());++di) // foreach dir in the graph
-  {
-    QDictIterator<UsedDir> udi(*dir->usedDirs());
-    UsedDir *udir;
-    for (udi.toFirst();(udir=udi.current());++udi) // foreach used dir
-    {
-      const DirDef *usedDir=udir->dir();
-      //! @todo fix relations: there are redundant ones now
-      if ((dir!=dd || !udir->inherited()) &&     // only show direct dependencies for this dir
-        (usedDir!=dd || !udir->inherited()) && // only show direct dependencies for this dir
-        !usedDir->isParentOf(dir) &&             // don't point to own parent
-        dirsInGraph.find(usedDir->getOutputFileBase())) // only point to nodes that are in the graph
-      {
-        QCString relationName;
-        relationName.sprintf("dir_%06d_%06d",dir->dirCount(),usedDir->dirCount());
-        if (Doxygen::dirRelations.find(relationName)==0)
-        {
-          // new relation
-          Doxygen::dirRelations.append(relationName,
-            new DirRelation(relationName,dir,udir));
-        }
-        int nrefs = udir->filePairs().count();
-        t << "  " << dir->getOutputFileBase() << "->"
-          << usedDir->getOutputFileBase();
-        t << " [headlabel=\"" << nrefs << "\", labeldistance=1.5";
-        if (linkRelations)
-        {
-          t << " headhref=\"" << relationName << Doxygen::htmlFileExtension << "\"";
-        }
-        t << "];\n";
-      }
-    }
-  }
-
-  t << "}\n";
 }
 
 DotDirDeps::DotDirDeps(const DirDef *dir) : m_dir(dir)
@@ -656,7 +535,7 @@ void DotDirDeps::computeTheGraph()
   // compute md5 checksum of the graph were are about to generate
   FTextStream md5stream(&m_theGraph);
   //m_dir->writeDepGraph(md5stream);
-  writeDotDirDepGraph(md5stream,m_dir,m_linkRelations);
+  writeDotDirDependencyGraph(md5stream,m_dir,m_linkRelations);
 }
 
 QCString DotDirDeps::getMapLabel() const
