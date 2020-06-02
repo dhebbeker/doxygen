@@ -457,10 +457,10 @@ static DirRelations getDirRelations(const ConstDirList& allNonAncestorDirectorie
   for (const auto subtree : allNonAncestorDirectories)
   {
     // check all dependencies of the subtree itself
-    QDictIterator<UsedDir> udi(*subtree->usedDirs());
-    const DirDef* usedDirectory;
-    for (udi.toFirst(); (usedDirectory = udi.current()->dir()); ++udi) // foreach used dir
+    QDictIterator<UsedDir> usedDirectoryIterator(*subtree->usedDirs());
+    for( ; usedDirectoryIterator.current(); ++usedDirectoryIterator)
     {
+      const auto usedDirectory = usedDirectoryIterator.current()->dir();
       const auto& visibleDependent = getVisibleAncestor(*subtree, startLevel);
       const auto& visibleDependee = getVisibleAncestor(*usedDirectory, startLevel);
       QCString relationName;
