@@ -327,7 +327,7 @@ static void getAncestorsLimited(const DirDef& basedOnDirectory, ConstDirList& an
       ancestors.push_back(&basedOnDirectory);
     }
     else if (std::abs(
-        startLevel - basedOnDirectory.parent()->level()) > Config_getInt(MAX_DOT_GRAPH_PARENTS))
+        startLevel - basedOnDirectory.parent()->level()) > Config_getInt(MAX_DOT_GRAPH_ANCESTORS))
     {
       directoryProperties[&basedOnDirectory].isOrphaned = true;
       ancestors.push_back(&basedOnDirectory);
@@ -390,7 +390,7 @@ static void drawTrees(FTextStream &outputStream, const ConstDirList& listOfTreeR
     }
     else
     {
-      if (((directory->level() + 1) - startLevel) > Config_getInt(MAX_DOT_GRAPH_CHILDREN))
+      if (((directory->level() + 1) - startLevel) > Config_getInt(MAX_DOT_GRAPH_SUCCESSORS))
       {
         directoryProperty.isTruncated = true;
         drawDirectory(outputStream, directory, directoryProperty);
