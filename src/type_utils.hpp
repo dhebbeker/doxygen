@@ -53,11 +53,8 @@ using MakeConstValueTypeContainer = typename MakeConstValueTypeContainerHelper<C
 template<class Container>
 auto makeConstCopy(const Container& sourceContainer)
 {
-  MakeConstValueTypeContainer<Container> constContainer(sourceContainer.size());
-  for(const auto element : sourceContainer)
-  {
-    constContainer.push_back(element);
-  }
+  MakeConstValueTypeContainer<Container> constContainer;
+  constContainer.insert(constContainer.end(), sourceContainer.begin(), sourceContainer.end());
   return constContainer;
 }
 
