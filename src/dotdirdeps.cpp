@@ -253,7 +253,7 @@ static void writeDotDirDepSubGraph(FTextStream &t, const DirDef *const dd,
 static ConstDirList getSuccessors(const ConstDirList& nextLevelSuccessors)
 {
   ConstDirList successors;
-  for (decltype(successors)::value_type successor : nextLevelSuccessors)
+  for (const auto successor : nextLevelSuccessors)
   {
     successors += successor;
     successors += getSuccessors(makeConstCopy(successor->subDirs()));
