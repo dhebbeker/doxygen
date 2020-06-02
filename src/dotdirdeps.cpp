@@ -400,12 +400,12 @@ static void drawTrees(FTextStream &outputStream, const ConstDirList& listOfTreeR
         {  // open cluster
           static const auto fontName = Config_getString(DOT_FONTNAME);
           static const auto fontSize = Config_getInt(DOT_FONTSIZE);
-          outputStream << "  subgraph cluster" << directory->parent()->getOutputFileBase() << " {\n"
+          outputStream << "  subgraph cluster" << directory->getOutputFileBase() << " {\n"
               << "    graph [ bgcolor=\""
-              << getDirectoryBackgroundColorCode(directory->parent()->level())
-              << "\", pencolor=\"black\", label=\"" << directory->parent()->shortName()
+              << getDirectoryBackgroundColorCode(directory->level())
+              << "\", pencolor=\"black\", label=\"" << directory->shortName()
               << "\" fontname=\"" << fontName << "\", fontsize=\"" << fontSize << "\", URL=\""
-              << directory->parent()->getOutputFileBase() << Doxygen::htmlFileExtension << "\"]\n";
+              << directory->getOutputFileBase() << Doxygen::htmlFileExtension << "\"]\n";
         }
         drawTrees(outputStream, makeConstCopy(directory->subDirs()), directoryProperties, startLevel);
         {  //close cluster
