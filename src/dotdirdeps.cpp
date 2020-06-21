@@ -471,18 +471,21 @@ static DirRelations getDirRelations(const ConstDirList& allNonAncestorDirectorie
           QCString relationName;
           relationName.sprintf("dir_%06d_%06d", dependent->dirCount(),
               dependee->dirCount());
-          if (Doxygen::dirRelations.find(relationName) == 0)
+          auto dependency = Doxygen::dirRelations.find(relationName);
+          if (dependency == nullptr)
           {
-            const auto dependency = new DirRelation(relationName, dependent,
-                usedDirectory);
+            dependency = new DirRelation(
+                                         relationName,
+                                         dependent,
+                                         usedDirectory);
             Doxygen::dirRelations.append(relationName, dependency);
-            relations.push_back(dependency);
           }
+          relations.push_back(dependency);
         }
       }
     }
   }
-  return relations;
+  return removeDuplicates(relations);
 }
 
 static void drawRelations(FTextStream& outputStream, const DirRelations& listOfRelations, const bool linkRelations)
