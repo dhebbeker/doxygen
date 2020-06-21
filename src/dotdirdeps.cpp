@@ -403,9 +403,11 @@ static void drawTrees(FTextStream &outputStream, const ConstDirList& listOfTreeR
           outputStream << "  subgraph cluster" << directory->getOutputFileBase() << " {\n"
               << "    graph [ bgcolor=\""
               << getDirectoryBackgroundColorCode(directory->level())
-              << "\", pencolor=\"black\", label=\"" << directory->shortName()
-              << "\" fontname=\"" << fontName << "\", fontsize=\"" << fontSize << "\", URL=\""
-              << directory->getOutputFileBase() << Doxygen::htmlFileExtension << "\"]\n";
+              << "\", pencolor=\"black\", label=\"\" fontname=\"" << fontName
+			  << "\", fontsize=\"" << fontSize << "\", URL=\""
+              << directory->getOutputFileBase() << Doxygen::htmlFileExtension << "\"]\n"
+			  << "    " << directory->getOutputFileBase() << " [shape=plaintext label=\""
+			  << directory->shortName() << "\"];\n";
         }
         drawTrees(outputStream, makeConstCopy(directory->subDirs()), directoryProperties, startLevel);
         {  //close cluster
