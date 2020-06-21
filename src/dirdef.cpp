@@ -665,7 +665,7 @@ void DirDefImpl::addUsesDependency(DirDef *dir,FileDef *srcFd,
     if (dir->parent())
     {
       // add relation to parent of used dir
-      addUsesDependency(dir->parent(),srcFd,dstFd,inherited);
+      addUsesDependency(dir->parent(),srcFd,dstFd,TRUE);
     }
     if (parent())
     {

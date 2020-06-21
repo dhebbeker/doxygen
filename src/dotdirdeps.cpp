@@ -275,7 +275,10 @@ static auto getDependees(const ConstDirList& dependents)
     const UsedDir *usedDirectory;
     for (usedDirectoriesIterator.toFirst(); (usedDirectory = usedDirectoriesIterator.current()); ++usedDirectoriesIterator) // for each used directory
     {
-      dependees += usedDirectory->dir();
+      if (!usedDirectory->inherited())
+      {
+        dependees += usedDirectory->dir();
+      }
     }
   }
   // there is the possibility that dependents target the same dependees
@@ -462,18 +465,24 @@ static DirRelations getDirRelations(const ConstDirList& allNonAncestorDirectorie
     QDictIterator<UsedDir> usedDirectoryIterator(*subtree->usedDirs());
     for( ; usedDirectoryIterator.current(); ++usedDirectoryIterator)
     {
-      const auto usedDirectory = usedDirectoryIterator.current()->dir();
-      const auto& visibleDependent = getVisibleAncestor(*subtree, startLevel);
-      const auto& visibleDependee = getVisibleAncestor(*usedDirectory, startLevel);
-      QCString relationName;
-      relationName.sprintf("dir_%06d_%06d", visibleDependent.dirCount(),
-          visibleDependee.dirCount());
-      if (Doxygen::dirRelations.find(relationName) == 0)
+      if (!usedDirectoryIterator.current()->inherited())
       {
-        auto const visibleUsedDirectory = new UsedDir(&visibleDependee, &visibleDependee != usedDirectory);
-        const auto dependency = new DirRelation(relationName, &visibleDependent, visibleUsedDirectory);
-        Doxygen::dirRelations.append(relationName, dependency);
-        relations.push_back(dependency);
+        const auto usedDirectory = usedDirectoryIterator.current()->dir();
+        const auto &visibleDependent = getVisibleAncestor(*subtree, startLevel);
+        const auto &visibleDependee = getVisibleAncestor(*usedDirectory,
+            startLevel);
+        QCString relationName;
+        relationName.sprintf("dir_%06d_%06d", visibleDependent.dirCount(),
+            visibleDependee.dirCount());
+        if (Doxygen::dirRelations.find(relationName) == 0)
+        {
+          auto const visibleUsedDirectory = new UsedDir(&visibleDependee,
+              &visibleDependee != usedDirectory);
+          const auto dependency = new DirRelation(relationName,
+              &visibleDependent, visibleUsedDirectory);
+          Doxygen::dirRelations.append(relationName, dependency);
+          relations.push_back(dependency);
+        }
       }
     }
 
