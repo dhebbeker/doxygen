@@ -161,7 +161,20 @@ std::vector<T>& operator+=(std::vector<T> &A, const T &B)
   return A;
 }
 
-
+/**
+ * Creates copy without duplicate values.
+ * @attention original order is not preserved
+ * @param originalValues
+ * @return
+ */
+template<typename Container>
+Container removeDuplicates(Container originalValues)
+{
+  std::sort(originalValues.begin(), originalValues.end());
+  const auto last = std::unique(originalValues.begin(), originalValues.end());
+  originalValues.erase(last, originalValues.end());
+  return originalValues;
+}
 
 struct DotDirProperty
 {
@@ -306,11 +319,7 @@ static auto getDependees(const ConstDirList& dependents, const DirectoryLevel mi
     }
   }
   // there is the possibility that dependents target the same dependees
-  // remove duplicates https://www.techiedelight.com/remove-duplicates-vector-cpp/
-  std::sort(dependees.begin(), dependees.end());
-  const auto last = std::unique(dependees.begin(), dependees.end());
-  dependees.erase(last, dependees.end());
-  return dependees;
+  return removeDuplicates(dependees);
 }
 
 /**
