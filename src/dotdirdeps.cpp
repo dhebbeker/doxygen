@@ -161,6 +161,30 @@ std::vector<T>& operator+=(std::vector<T> &A, const T &B)
   return A;
 }
 
+
+
+struct DotDirProperty
+{
+  bool isIncomplete = false;
+  bool isOrphaned = false;
+  bool isTruncated = false;
+};
+
+template<typename Function, Function * function>
+struct Functor
+{
+    template<typename Iterator1, typename Iterator2>
+    bool operator()(Iterator1 lhs, Iterator2 rhs) const
+    {
+        return function(lhs, rhs);
+     }
+};
+
+#define SpecializeFunctor(function) Functor<decltype(function), &function>
+
+typedef std::map<const DirDef * const, DotDirProperty, SpecializeFunctor(compareDirDefs)> PropertyMap;
+typedef decltype(std::declval<DirDef>().level()) DirectoryLevel;
+
 /**
  * returns a DOT color name according to the directory depth
  * @param depthIndex any number
@@ -266,7 +290,7 @@ Add each node only once.
  * @param dependents (dependers which depend on the dependees)
  * @return
  */
-static auto getDependees(const ConstDirList& dependents)
+static auto getDependees(const ConstDirList& dependents, const DirectoryLevel minLevel)
 {
   ConstDirList dependees;
   for(const auto dependent : dependents)
@@ -275,7 +299,7 @@ static auto getDependees(const ConstDirList& dependents)
     const UsedDir *usedDirectory;
     for (usedDirectoriesIterator.toFirst(); (usedDirectory = usedDirectoriesIterator.current()); ++usedDirectoriesIterator) // for each used directory
     {
-      if (!usedDirectory->inherited())
+      if (usedDirectory->dir()->level() >= minLevel)
       {
         dependees += usedDirectory->dir();
       }
@@ -289,28 +313,6 @@ static auto getDependees(const ConstDirList& dependents)
   return dependees;
 }
 
-struct DotDirProperty
-{
-  bool isIncomplete = false;
-  bool isOrphaned = false;
-  bool isTruncated = false;
-};
-
-template<typename Function, Function * function>
-struct Functor
-{
-    template<typename Iterator1, typename Iterator2>
-    bool operator()(Iterator1 lhs, Iterator2 rhs) const
-    {
-        return function(lhs, rhs);
-     }
-};
-
-#define SpecializeFunctor(function) Functor<decltype(function), &function>
-
-typedef std::map<const DirDef * const, DotDirProperty, SpecializeFunctor(compareDirDefs)> PropertyMap;
-typedef decltype(std::declval<DirDef>().level()) DirectoryLevel;
-
 /**
  * Buts only the elder in the
 ### Ancestor(x)
@@ -320,7 +322,7 @@ typedef decltype(std::declval<DirDef>().level()) DirectoryLevel;
  4. if x has no parent; put x to ancestor list and return; else
  5. Ancestor(p)
  */
-static void getAncestorsLimited(const DirDef& basedOnDirectory, ConstDirList& ancestors, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
+static void getTreeRootsLimited(const DirDef& basedOnDirectory, ConstDirList& ancestors, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
 {
   if (std::find(ancestors.begin(), ancestors.end(), &basedOnDirectory) == ancestors.end())
   {
@@ -337,17 +339,17 @@ static void getAncestorsLimited(const DirDef& basedOnDirectory, ConstDirList& an
     }
     else
     {
-      getAncestorsLimited(*(basedOnDirectory.parent()), ancestors, directoryProperties, startLevel);
+      getTreeRootsLimited(*(basedOnDirectory.parent()), ancestors, directoryProperties, startLevel);
     }
   }
 }
 
-static ConstDirList getAncestorsLimited(const ConstDirList& basedOnDirectories, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
+static ConstDirList getTreeRootsLimited(const ConstDirList& basedOnDirectories, PropertyMap& directoryProperties, const DirectoryLevel startLevel)
 {
   ConstDirList ancestorList;
   for (const auto basedOnDirectory : basedOnDirectories)
   {
-    getAncestorsLimited(*basedOnDirectory, ancestorList, directoryProperties, startLevel);
+    getTreeRootsLimited(*basedOnDirectory, ancestorList, directoryProperties, startLevel);
   }
   return ancestorList;
 }
@@ -421,36 +423,17 @@ static void drawTrees(FTextStream &outputStream, const ConstDirList& listOfTreeR
   }
 }
 
-/** Backtrace ancestors until one is found, which is within the limit to be drawn.
- *
- * @param directory
- * @param startLevel
- * @return
- */
-static const DirDef& getVisibleAncestor(const DirDef& directory, const DirectoryLevel startLevel)
-{
-  if ((directory.level() - startLevel) <= Config_getInt(MAX_DOT_GRAPH_DEPTH))
-  {
-    return directory;
-  }
-  else
-  {
-    return getVisibleAncestor(*directory.parent(), startLevel);
-  }
-}
-
 typedef std::vector<const DirRelation*> DirRelations;
+
+static bool isAtLowerVisibilityBorder(const DirDef& directory, const DirectoryLevel startLevel)
+{
+  return (directory.level() - startLevel) == Config_getInt(MAX_DOT_GRAPH_DEPTH);
+}
 
 /**
  *
  can only be determined, when the complete and not truncated set of nodes is known.
  determines all dependencies within a set, respecting the limits
- 1. Take the ancestor list and walk through each tree. For each tree:
- 2. Walk trough the tree (using any algorithm). For each node x:
- 3. For each dependency d_x of x consisting of the dependent d_x_from and the dependee d_x_to
-   1. p = visible_ancestor(d_x_from)
-   2. q = visible_ancestor(d_x_to)
-   3. add relation p -> q to list of dependencies
 
  * @param outputStream
  * @param listOfDependencies
@@ -458,36 +441,37 @@ typedef std::vector<const DirRelation*> DirRelations;
  */
 static DirRelations getDirRelations(const ConstDirList& allNonAncestorDirectories, const DirectoryLevel startLevel)
 {
+  /// @todo check that all ancestors are given in the list
   DirRelations relations;
-  for (const auto subtree : allNonAncestorDirectories)
+  for (const auto dependent : allNonAncestorDirectories)
   {
-    // check all dependencies of the subtree itself
-    QDictIterator<UsedDir> usedDirectoryIterator(*subtree->usedDirs());
-    for( ; usedDirectoryIterator.current(); ++usedDirectoryIterator)
+    if ((dependent->level() - startLevel) <= Config_getInt(MAX_DOT_GRAPH_DEPTH)) // is visible
     {
-      if (!usedDirectoryIterator.current()->inherited())
+      // check all dependencies of the subtree itself
+      QDictIterator<UsedDir> usedDirectoryIterator(*dependent->usedDirs());
+      for (; usedDirectoryIterator.current(); ++usedDirectoryIterator)
       {
-        const auto usedDirectory = usedDirectoryIterator.current()->dir();
-        const auto &visibleDependent = getVisibleAncestor(*subtree, startLevel);
-        const auto &visibleDependee = getVisibleAncestor(*usedDirectory,
-            startLevel);
-        QCString relationName;
-        relationName.sprintf("dir_%06d_%06d", visibleDependent.dirCount(),
-            visibleDependee.dirCount());
-        if (Doxygen::dirRelations.find(relationName) == 0)
+        const auto usedDirectory = usedDirectoryIterator.current();
+        const auto dependee = usedDirectory->dir();
+        if (((dependee->level() - startLevel)
+            <= Config_getInt(MAX_DOT_GRAPH_DEPTH)) // is visible
+            and (!usedDirectory->inherited()
+                or (isAtLowerVisibilityBorder(*dependent, startLevel)
+                    and isAtLowerVisibilityBorder(*dependee, startLevel))))
         {
-          auto const visibleUsedDirectory = new UsedDir(&visibleDependee,
-              &visibleDependee != usedDirectory);
-          const auto dependency = new DirRelation(relationName,
-              &visibleDependent, visibleUsedDirectory);
-          Doxygen::dirRelations.append(relationName, dependency);
-          relations.push_back(dependency);
+          QCString relationName;
+          relationName.sprintf("dir_%06d_%06d", dependent->dirCount(),
+              dependee->dirCount());
+          if (Doxygen::dirRelations.find(relationName) == 0)
+          {
+            const auto dependency = new DirRelation(relationName, dependent,
+                usedDirectory);
+            Doxygen::dirRelations.append(relationName, dependency);
+            relations.push_back(dependency);
+          }
         }
       }
     }
-
-    // check the sub-directories of the subtree
-    relations += getDirRelations(makeConstCopy(subtree->subDirs()), startLevel);
   }
   return relations;
 }
@@ -516,9 +500,10 @@ static void writeDotDirDependencyGraph(FTextStream &outputStream,
   const auto startLevel = originalDirectoryPointer->level();
   const auto successorsOfOriginalDirectory = getSuccessors(
       makeConstCopy(originalDirectoryPointer->subDirs()));
+  // contains also the ancestors of the dependees
   const auto dependeeDirectories = getDependees(
-      successorsOfOriginalDirectory + originalDirectoryPointer);
-  const auto listOfTreeRoots = getAncestorsLimited(dependeeDirectories + originalDirectoryPointer,
+      successorsOfOriginalDirectory + originalDirectoryPointer, startLevel - Config_getInt(MAX_DOT_GRAPH_ANCESTOR));
+  const auto listOfTreeRoots = getTreeRootsLimited(dependeeDirectories + originalDirectoryPointer,
       directoryDrawingProperties, startLevel);
   const auto allNonAncestorDirectories = successorsOfOriginalDirectory + originalDirectoryPointer
       + dependeeDirectories + getSuccessors(dependeeDirectories);
