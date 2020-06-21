@@ -498,31 +498,45 @@ static void writeDotDirDependencyGraph(FTextStream &outputStream,
 {
   PropertyMap directoryDrawingProperties;
   const auto startLevel = originalDirectoryPointer->level();
-  const auto successorsOfOriginalDirectory = getSuccessors(
-      makeConstCopy(originalDirectoryPointer->subDirs()));
+  const auto successorsOfOriginalDirectory =
+      getSuccessors(makeConstCopy(originalDirectoryPointer->subDirs()));
   // contains also the ancestors of the dependees
-  const auto dependeeDirectories = getDependees(
-      successorsOfOriginalDirectory + originalDirectoryPointer, startLevel - Config_getInt(MAX_DOT_GRAPH_ANCESTOR));
-  const auto listOfTreeRoots = getTreeRootsLimited(dependeeDirectories + originalDirectoryPointer,
-      directoryDrawingProperties, startLevel);
-  const auto allNonAncestorDirectories = successorsOfOriginalDirectory + originalDirectoryPointer
-      + dependeeDirectories + getSuccessors(dependeeDirectories);
-  const auto listOfRelations = getDirRelations(allNonAncestorDirectories, startLevel);
+  const auto dependeeDirectories =
+      getDependees(
+                   successorsOfOriginalDirectory + originalDirectoryPointer,
+                   startLevel - Config_getInt(MAX_DOT_GRAPH_ANCESTOR));
+  const auto listOfTreeRoots =
+      getTreeRootsLimited(
+                          dependeeDirectories + originalDirectoryPointer,
+                          directoryDrawingProperties,
+                          startLevel);
+  const auto allNonAncestorDirectories = successorsOfOriginalDirectory
+      + originalDirectoryPointer + dependeeDirectories
+      + getSuccessors(dependeeDirectories);
+  const auto listOfRelations = getDirRelations(
+                                               allNonAncestorDirectories,
+                                               startLevel);
 
   // write the head of the DOT file
   const auto fontSize = Config_getInt(DOT_FONTSIZE);
   const auto fontName = Config_getString(DOT_FONTNAME);
-  outputStream << "digraph \"" << originalDirectoryPointer->displayName() << "\" {\n";
+  outputStream << "digraph \"" << originalDirectoryPointer->displayName()
+      << "\" {\n";
   if (Config_getBool(DOT_TRANSPARENT))
   {
     outputStream << "  bgcolor=transparent;\n";
   }
   outputStream << "  compound=true\n";
-  outputStream << "  node [ fontsize=\"" << fontSize << "\", fontname=\"" << fontName << "\"];\n";
-  outputStream << "  edge [ labelfontsize=\"" << fontSize << "\", labelfontname=\"" << fontName
-      << "\"];\n";
+  outputStream << "  node [ fontsize=\"" << fontSize << "\", fontname=\""
+      << fontName << "\"];\n";
+  outputStream << "  edge [ labelfontsize=\"" << fontSize
+      << "\", labelfontname=\"" << fontName << "\"];\n";
 
-  drawTrees(outputStream, listOfTreeRoots, directoryDrawingProperties, startLevel);
+  drawTrees(
+            outputStream,
+            listOfTreeRoots,
+            directoryDrawingProperties,
+            startLevel);
   drawRelations(outputStream, listOfRelations, linkRelations);
 
   // write the closure of the DOT file
