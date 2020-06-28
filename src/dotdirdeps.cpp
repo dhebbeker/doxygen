@@ -464,9 +464,9 @@ static DirRelations getDirRelations(const ConstDirList& allNonAncestorDirectorie
         const auto dependee = usedDirectory->dir();
         if (((dependee->level() - startLevel)
             <= Config_getInt(MAX_DOT_GRAPH_DEPTH)) // is visible
-            and (!usedDirectory->inherited()
-                or (isAtLowerVisibilityBorder(*dependent, startLevel)
-                    and isAtLowerVisibilityBorder(*dependee, startLevel))))
+            && (!usedDirectory->inherited()
+                || (isAtLowerVisibilityBorder(*dependent, startLevel)
+                    && isAtLowerVisibilityBorder(*dependee, startLevel))))
         {
           QCString relationName;
           relationName.sprintf("dir_%06d_%06d", dependent->dirCount(),
