@@ -436,7 +436,7 @@ typedef std::vector<const DirRelation*> DirRelations;
 
 static bool isAtLowerVisibilityBorder(const DirDef& directory, const DirectoryLevel startLevel)
 {
-  return (directory.level() - startLevel) == Config_getInt(MAX_DOT_GRAPH_DEPTH);
+  return (directory.level() - startLevel) == Config_getInt(MAX_DOT_GRAPH_SUCCESSOR);
 }
 
 /**
@@ -454,7 +454,7 @@ static DirRelations getDirRelations(const ConstDirList& allNonAncestorDirectorie
   DirRelations relations;
   for (const auto dependent : allNonAncestorDirectories)
   {
-    if ((dependent->level() - startLevel) <= Config_getInt(MAX_DOT_GRAPH_DEPTH)) // is visible
+    if ((dependent->level() - startLevel) <= Config_getInt(MAX_DOT_GRAPH_SUCCESSOR)) // is visible
     {
       // check all dependencies of the subtree itself
       QDictIterator<UsedDir> usedDirectoryIterator(*dependent->usedDirs());
@@ -463,7 +463,7 @@ static DirRelations getDirRelations(const ConstDirList& allNonAncestorDirectorie
         const auto usedDirectory = usedDirectoryIterator.current();
         const auto dependee = usedDirectory->dir();
         if (((dependee->level() - startLevel)
-            <= Config_getInt(MAX_DOT_GRAPH_DEPTH)) // is visible
+            <= Config_getInt(MAX_DOT_GRAPH_SUCCESSOR)) // is visible
             && (!usedDirectory->inherited()
                 || (isAtLowerVisibilityBorder(*dependent, startLevel)
                     && isAtLowerVisibilityBorder(*dependee, startLevel))))
