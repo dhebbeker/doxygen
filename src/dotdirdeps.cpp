@@ -125,6 +125,7 @@ Determine recursively children and *do not* respect limits.
 //! @todo https://stackoverflow.com/a/49174699/5534993
 //! @todo https://en.cppreference.com/w/cpp/container/list/splice
 //! @todo instead of using free functions to append to std::vector, insert the code inline?
+//! @todo reduce the definitions of helper functions and use std functions instead
 
 //! @see https://stackoverflow.com/a/21391109/5534993
 template <typename T>
