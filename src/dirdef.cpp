@@ -16,6 +16,7 @@
 #include "definitionimpl.h"
 #include "filedef.h"
 #include <algorithm>
+#include <string>
 
 //----------------------------------------------------------------------
 
@@ -52,7 +53,7 @@ class DirDefImpl : public DefinitionImpl, public DirDef
     virtual void setParent(DirDef *parent);
     virtual void setLevel();
     virtual void addUsesDependency(DirDef *usedDir,FileDef *srcFd,
-                           FileDef *dstFd,bool inherited);
+                           FileDef *dstFd,const bool inheritedByDependent, const bool inheritedByDependee);
     virtual void computeDependencies();
 
   public:
@@ -624,7 +625,8 @@ void DirDefImpl::setLevel()
  *  that was caused by a dependency on file \a fd.
  */
 void DirDefImpl::addUsesDependency(DirDef *dir,FileDef *srcFd,
-                               FileDef *dstFd,bool inherited)
+                               FileDef *dstFd,
+    const bool inheritedByDependent, const bool inheritedByDependee)
 {
   if (this==dir) return; // do not add self-dependencies
   //static int count=0;
@@ -636,7 +638,8 @@ void DirDefImpl::addUsesDependency(DirDef *dir,FileDef *srcFd,
 
   // levels match => add direct dependency
   bool added=FALSE;
-  UsedDir *usedDir = m_usedDirs->find(dir->getOutputFileBase());
+  const auto dirKey = UsedDir::generateKey(dir, inheritedByDependent, inheritedByDependee);
+  UsedDir *usedDir = m_usedDirs->find(dirKey);
   if (usedDir) // dir dependency already present
   {
      FilePair *usedPair = usedDir->findFilePair(
@@ -655,9 +658,9 @@ void DirDefImpl::addUsesDependency(DirDef *dir,FileDef *srcFd,
   else // new directory dependency
   {
     //printf("  => new file\n");
-    usedDir = new UsedDir(dir,inherited);
+    usedDir = new UsedDir(dir, inheritedByDependent, inheritedByDependee);
     usedDir->addFileDep(srcFd,dstFd);
-    m_usedDirs->insert(dir->getOutputFileBase(),usedDir);
+    m_usedDirs->insert(dirKey,usedDir);
     added=TRUE;
   }
   if (added)
@@ -665,12 +668,17 @@ void DirDefImpl::addUsesDependency(DirDef *dir,FileDef *srcFd,
     if (dir->parent())
     {
       // add relation to parent of used dir
-      addUsesDependency(dir->parent(),srcFd,dstFd,TRUE);
+      addUsesDependency(
+                        dir->parent(),
+                        srcFd,
+                        dstFd,
+                        inheritedByDependent,
+                        true);
     }
     if (parent())
     {
       // add relation for the parent of this dir as well
-      parent()->addUsesDependency(dir,srcFd,dstFd,TRUE);
+      parent()->addUsesDependency(dir, srcFd, dstFd, true, inheritedByDependee);
     }
   }
 }
@@ -705,7 +713,7 @@ void DirDefImpl::computeDependencies()
               // add dependency: thisDir->usedDir
               //static int count=0;
               //printf("      %d: add dependency %s->%s\n",count++,name().data(),usedDir->name().data());
-              addUsesDependency(usedDir,fd,ii->fileDef,FALSE);
+              addUsesDependency(usedDir, fd, ii->fileDef, false, false);
             }
           }
         }
@@ -750,8 +758,8 @@ int FilePairDict::compareValues(const FilePair *left,const FilePair *right) cons
 
 //----------------------------------------------------------------------
 
-UsedDir::UsedDir(const DirDef *dir,bool inherited) :
-   m_dir(dir), m_filePairs(7), m_inherited(inherited)
+UsedDir::UsedDir(const DirDef *dir,const bool isDependencyInherited, const bool isParentOfTheDependee) :
+   m_dir(dir), m_filePairs(7), m_isOriginalDependent(!isDependencyInherited), m_isOriginalDependee(!isParentOfTheDependee)
 {
   m_filePairs.setAutoDelete(TRUE);
 }
@@ -1098,3 +1106,17 @@ bool compareDirDefs(const DirDef *item1, const DirDef *item2)
   return qstricmp(item1->shortName(),item2->shortName()) < 0;
 }
 
+bool UsedDir::isDependencyInherited() const
+{
+  return !m_isOriginalDependent;
+}
+
+bool UsedDir::isParentOfTheDependee() const
+{
+  return !m_isOriginalDependee;
+}
+
+UsedDir::GeneratedKey UsedDir::generateKey(const DirDef* const directory, const bool isDependencyInherited, const bool isParentOfTheDependee)
+{
+  return directory->getOutputFileBase().append(std::to_string(isDependencyInherited).c_str()).append(std::to_string(isParentOfTheDependee).c_str());
+}

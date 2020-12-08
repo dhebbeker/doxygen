@@ -79,7 +79,7 @@ class DirDef : virtual public Definition
     virtual void setParent(DirDef *parent) = 0;
     virtual void setLevel() = 0;
     virtual void addUsesDependency(DirDef *usedDir,FileDef *srcFd,
-                           FileDef *dstFd,bool inherited) = 0;
+                           FileDef *dstFd,const bool inheritedByDependent, const bool inheritedByDependee) = 0;
     virtual void computeDependencies() = 0;
 };
 
@@ -108,19 +108,22 @@ class FilePairDict : public SDict<FilePair>
 class UsedDir
 {
   public:
-    UsedDir(const DirDef *dir,bool inherited);
+  using GeneratedKey = decltype(((DirDef*)nullptr)->getOutputFileBase());
+  static GeneratedKey generateKey(const DirDef* const directory, const bool isDependencyInherited, const bool isParentOfTheDependee);
+    UsedDir(const DirDef *dir,const bool isDependencyInherited, const bool isParentOfTheDependee);
     virtual ~UsedDir();
     void addFileDep(FileDef *srcFd,FileDef *dstFd);
     FilePair *findFilePair(const char *name);
     const FilePairDict &filePairs() const { return m_filePairs; }
     const DirDef *dir() const { return m_dir; }
-    bool inherited() const { return m_inherited; }
+    bool isDependencyInherited() const;
+    bool isParentOfTheDependee() const;
     void sort();
 
   private:
     const DirDef *m_dir;
     FilePairDict m_filePairs;
-    bool m_inherited;
+    const bool m_isOriginalDependent, m_isOriginalDependee;
 };
 
 /** A usage relation between two directories. */
