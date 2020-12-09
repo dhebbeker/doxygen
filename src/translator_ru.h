@@ -35,9 +35,10 @@ class TranslatorRussian : public TranslatorAdapter_1_8_15
 
     /* Used to get the command(s) for the language support. */
     virtual QCString latexLanguageSupportCommand()
-    {
-        return "\\usepackage[T2A]{fontenc}\n\\usepackage[russian]{babel}\n";
-    }
+    { return "\\usepackage[T2A]{fontenc}\n\\usepackage[russian]{babel}\n"; }
+
+    virtual QCString trISOLang()
+    { return "ru"; }
 
     // --- Language translation methods -------------------
 
@@ -210,6 +211,10 @@ class TranslatorRussian : public TranslatorAdapter_1_8_15
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Структуры данных с их кратким описанием.";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Классы с их кратким описанием.";
       }
       else
       {
@@ -1904,14 +1909,6 @@ class TranslatorRussian : public TranslatorAdapter_1_8_15
       return "Документация метода";
     }
 
-    /*! Used as the title of the design overview picture created for the
-     *  VHDL output.
-     */
-    virtual QCString trDesignOverview()
-    {
-      return "Обзор дизайна";
-    }
-
 ///////////////////////////////////////////////////////////////////////
 // new since 1.8.4
 ///////////////////////////////////////////////////////////////////////
@@ -1967,8 +1964,6 @@ class TranslatorRussian : public TranslatorAdapter_1_8_15
       if (single) result+="а:"; else result+="ов:";
       return result;
     }
-
-///////////////////////////////////////////////////////////////////////
 };
 
 #endif

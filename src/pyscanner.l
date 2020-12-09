@@ -97,6 +97,7 @@ struct pyscannerYY_state
   QGString *              copyString = 0;
   int                     indent = 0;
   int                     curIndent = 0;
+  int                     commentIndent = 0;
   bool                    importTuple = FALSE;
   QDict<QCString>         packageNameCache;
   char                    atomStart = 0;
@@ -112,6 +113,7 @@ struct pyscannerYY_state
   int                     search_count = 0;
   QCString                argType;
   bool                    funcParamsEnd = FALSE;
+  std::vector<QCString>   decorators;
 };
 
 //-----------------------------------------------------------------------------
@@ -174,6 +176,7 @@ NONEMPTYEXP       [^ \t\n:]
 PARAMNONEMPTY     [^ \t\n():]
 IDENTIFIER        ({LETTER}|"_")({LETTER}|{DIGIT}|"_")*  
 SCOPE             {IDENTIFIER}("."{IDENTIFIER})*
+CALL              "("[^)]*")"
 BORDER            ([^A-Za-z0-9])
 
 TRISINGLEQUOTE    {STRINGPREFIX}?"'''"(!)?
@@ -334,6 +337,8 @@ STARTDOCSYMS      "##"
     "@staticmethod"  {
        			yyextra->stat=TRUE;
       		      }
+    "@"{SCOPE}{CALL}? { // decorator
+                      }
     {SCRIPTCOMMENT}   { // Unix type script comment
                         if (yyextra->yyLineNr != 1) REJECT;
       		      }
@@ -650,6 +655,7 @@ STARTDOCSYMS      "##"
     {B}":"{B}		    { // function without arguments
 			      yyextra->specialBlock = TRUE; // expecting a docstring
 			      yyextra->bodyEntry = yyextra->current;
+                              yyextra->current->bodyLine  = yyextra->yyLineNr;
                               BEGIN(FunctionBody);
 			    }
 
@@ -1251,8 +1257,12 @@ STARTDOCSYMS      "##"
 			      QCString actualDoc=yyextra->docBlock;
 			      if (!yyextra->docBlockSpecial) // legacy unformatted docstring
 			      {
-			        actualDoc.prepend("\\verbatim ");
-			        actualDoc.append("\\endverbatim ");
+                                if (!actualDoc.isEmpty())
+                                {
+                                  stripIndentation(actualDoc,yyextra->commentIndent);
+			          actualDoc.prepend("\\verbatim\n");
+			          actualDoc.append("\\endverbatim ");
+			        }
 			      }
 			      //printf("-------> yyextra->current=%p yyextra->bodyEntry=%p\n",yyextra->current,yyextra->bodyEntry);
 			      handleCommentBlock(yyscanner, actualDoc, FALSE);
@@ -1262,8 +1272,12 @@ STARTDOCSYMS      "##"
 			      QCString actualDoc=yyextra->docBlock;
 			      if (!yyextra->docBlockSpecial) // legacy unformatted docstring
 			      {
-			        actualDoc.prepend("\\verbatim ");
-			        actualDoc.append("\\endverbatim ");
+                                if (!actualDoc.isEmpty())
+                                {
+                                  stripIndentation(actualDoc,yyextra->commentIndent);
+			          actualDoc.prepend("\\verbatim\n");
+			          actualDoc.append("\\endverbatim ");
+			        }
 			      }
 			      actualDoc.prepend("\\namespace "+yyextra->moduleScope+" ");
 			      handleCommentBlock(yyscanner, actualDoc, FALSE);
@@ -1290,18 +1304,7 @@ STARTDOCSYMS      "##"
 
 
     ^{BB}		{ // leading whitespace
-      			  int indent = computeIndent(yytext);
-			  if (indent>=yyextra->curIndent)
-			  { // strip yyextra->curIndent amount of whitespace
-			    int i;
-			    for (i=0;i<indent-yyextra->curIndent;i++) yyextra->docBlock+=' ';
-			    DBG_CTX((stderr,"stripping indent %d\n",yyextra->curIndent));
-			  }
-			  else
-			  {
-			    DBG_CTX((stderr,"not stripping: %d<%d\n",indent,yyextra->curIndent));
-			    yyextra->docBlock += yytext;
-			  }
+			  yyextra->docBlock += yytext;
       			}
     [^"'\n \t\\]+       {
 			  yyextra->docBlock += yytext;
@@ -1324,7 +1327,6 @@ STARTDOCSYMS      "##"
     \n/{B}"#"		{ // continuation of the comment on the next line
       			  yyextra->docBlock+='\n';
 			  yyextra->docBrief = FALSE;
-                          startCommentBlock(yyscanner,FALSE);
 			  incLineNr(yyscanner);
       			}
     [^#\n]+             { // any other stuff
@@ -1428,7 +1430,7 @@ STARTDOCSYMS      "##"
                                }
 
 <*>"'"                         {
-       fprintf(stderr,"Quote: %d\n",YY_START);
+                                 //fprintf(stderr,"Quote: %d\n",YY_START);
                                }
 
 <*>.                           {
@@ -1517,7 +1519,7 @@ static void newFunction(yyscan_t yyscanner)
 static inline int computeIndent(const char *s)
 {
   int col=0;
-  static int tabSize=Config_getInt(TAB_SIZE);
+  int tabSize=Config_getInt(TAB_SIZE);
   const char *p=s;
   char c;
   while ((c=*p++))
@@ -1618,15 +1620,20 @@ static void handleCommentBlock(yyscan_t yyscanner,const QCString &doc,bool brief
   // TODO: Fix me
   yyextra->docBlockInBody=FALSE;
   
+  if (!yyextra->current->doc.isEmpty())
+  {
+    yyextra->current->doc=yyextra->current->doc.stripWhiteSpace()+"\n\n";
+  }
   if (yyextra->docBlockInBody && yyextra->previous && !yyextra->previous->doc.isEmpty())
   {
     yyextra->previous->doc=yyextra->previous->doc.stripWhiteSpace()+"\n\n";
   }
 
   int position = 0;
-  bool needsEntry;
+  bool needsEntry = false;
   int lineNr = brief ? yyextra->current->briefLine : yyextra->current->docLine;
-  QCString processedDoc = processMarkdownForCommentBlock(doc,yyextra->yyFileName,lineNr);
+  Markdown markdown(yyextra->yyFileName,lineNr);
+  QCString processedDoc = Config_getBool(MARKDOWN_SUPPORT) ? markdown.process(doc,lineNr) : doc;
   while (yyextra->commentScanner.parseCommentBlock(
         yyextra->thisParser,
         (yyextra->docBlockInBody && yyextra->previous) ? yyextra->previous.get() : yyextra->current.get(),
@@ -1638,7 +1645,8 @@ static void handleCommentBlock(yyscan_t yyscanner,const QCString &doc,bool brief
         yyextra->docBlockInBody,
         yyextra->protection,
         position,
-        needsEntry)
+        needsEntry,
+        Config_getBool(MARKDOWN_SUPPORT))
      ) // need to start a new entry
   {
     if (needsEntry)
@@ -1678,8 +1686,9 @@ static void initTriDoubleQuoteBlock(yyscan_t yyscanner)
   yyextra->docBlockContext   = YY_START;
   yyextra->docBlockInBody    = FALSE;
   yyextra->docBlockJavaStyle = TRUE;
-  yyextra->docBlockSpecial   = yytext[strlen(yytext) - 1]=='!';
+  yyextra->docBlockSpecial   = yytext[strlen(yytext) - 1]=='!' || !Config_getBool(PYTHON_DOCSTRING);
   yyextra->docBlock.resize(0);
+  yyextra->commentIndent = yyextra->curIndent;
   yyextra->doubleQuote = TRUE;
   startCommentBlock(yyscanner,FALSE);
 }
@@ -1690,8 +1699,9 @@ static void initTriSingleQuoteBlock(yyscan_t yyscanner)
   yyextra->docBlockContext   = YY_START;
   yyextra->docBlockInBody    = FALSE;
   yyextra->docBlockJavaStyle = TRUE;
-  yyextra->docBlockSpecial   = yytext[strlen(yytext) - 1]=='!';
+  yyextra->docBlockSpecial   = yytext[strlen(yytext) - 1]=='!' || !Config_getBool(PYTHON_DOCSTRING);
   yyextra->docBlock.resize(0);
+  yyextra->commentIndent = yyextra->curIndent;
   yyextra->doubleQuote = FALSE;
   startCommentBlock(yyscanner,FALSE);
 }
@@ -1704,7 +1714,8 @@ static void initSpecialBlock(yyscan_t yyscanner)
   yyextra->docBlockJavaStyle = TRUE;
   yyextra->docBrief = TRUE;
   yyextra->docBlock.resize(0);
-  startCommentBlock(yyscanner,TRUE);
+  yyextra->commentIndent = yyextra->curIndent;
+  startCommentBlock(yyscanner,FALSE);
 }
 
 static void searchFoundDef(yyscan_t yyscanner)
@@ -1750,8 +1761,8 @@ static void parseCompounds(yyscan_t yyscanner,std::shared_ptr<Entry> rt)
     std::shared_ptr<Entry> ce = rt->children()[i];
     if (!ce->program.isEmpty())
     {
-      //printf("-- %s ---------\n%s\n---------------\n",
-      //  ce->name.data(),ce->program.data());
+      //fprintf(stderr,"parseCompounds: -- %s (line %d) ---------\n%s\n---------------\n",
+      //  ce->name.data(), ce->bodyLine, ce->program.data());
       // init scanner state
       yyextra->inputString = ce->program;
       yyextra->inputPosition = 0;
@@ -1930,8 +1941,7 @@ PythonOutlineParser::~PythonOutlineParser()
 void PythonOutlineParser::parseInput(const char *fileName,
                                        const char *fileBuf,
                                        const std::shared_ptr<Entry> &root,
-                                       bool /*sameTranslationUnit*/,
-                                       QStrList & /*filesInSameTranslationUnit*/)
+                                       ClangTUParser * /*clangParser*/)
 {
   struct yyguts_t *yyg = (struct yyguts_t*)p->yyscanner;
   yyextra->thisParser = this;

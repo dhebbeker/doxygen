@@ -154,7 +154,11 @@ void ClassSDict::writeDocumentation(OutputList &ol,const Definition * container)
           ol.endGroupHeader();
           found=TRUE;
         }
-        cd->writeInlineDocumentation(ol);
+        ClassDefMutable *cdm = toClassDefMutable(cd);
+        if (cdm)
+        {
+          cdm->writeInlineDocumentation(ol);
+        }
       }
     }
   }

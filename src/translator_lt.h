@@ -65,6 +65,11 @@ class TranslatorLithuanian : public TranslatorAdapter_1_4_6
              "\\usepackage[lithuanian]{babel}\n";
     }
 
+    virtual QCString trISOLang()
+    {
+      return "lt";
+    }
+
     // --- Language translation methods -------------------
 
     /*! used in the compound documentation before a list of related functions. */
@@ -235,6 +240,10 @@ class TranslatorLithuanian : public TranslatorAdapter_1_4_6
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Duomenų struktūros su trumpais aprašymais:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Klasės su trumpais aprašymais:";
       }
       else
       {

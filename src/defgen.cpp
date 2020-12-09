@@ -243,71 +243,58 @@ void generateDEFForMember(MemberDef *md,
 
   //printf("md->getReferencesMembers()=%p\n",md->getReferencesMembers());
 
-  MemberSDict *mdict = md->getReferencesMembers();
-  if (mdict)
+  QCString refPrefix = "  " + memPrefix + "ref-";
+  auto refList = md->getReferencesMembers();
+  for (const auto &rmd : refList)
   {
-    MemberSDict::Iterator mdi(*mdict);
-    MemberDef *rmd;
-    QCString refPrefix = "  " + memPrefix + "ref-";
-
-    for (mdi.toFirst();(rmd=mdi.current());++mdi)
+    if (rmd->getStartBodyLine()!=-1 && rmd->getBodyDef())
     {
-      if (rmd->getStartBodyLine()!=-1 && rmd->getBodyDef())
+      t << memPrefix << "referenceto = {" << endl;
+      t << refPrefix << "id = '"
+        << rmd->getBodyDef()->getOutputFileBase()
+        << "_1"   // encoded ':' character (see util.cpp:convertNameToFile)
+        << rmd->anchor() << "';" << endl;
+
+      t << refPrefix << "line = '"
+        << rmd->getStartBodyLine() << "';" << endl;
+
+      QCString scope = rmd->getScopeString();
+      QCString name = rmd->name();
+      if (!scope.isEmpty() && scope!=def->name())
       {
-        t << memPrefix << "referenceto = {" << endl;
-        t << refPrefix << "id = '"
-          << rmd->getBodyDef()->getOutputFileBase()
-          << "_1"   // encoded ':' character (see util.cpp:convertNameToFile)
-          << rmd->anchor() << "';" << endl;
-
-        t << refPrefix << "line = '"
-          << rmd->getStartBodyLine() << "';" << endl;
-
-        QCString scope = rmd->getScopeString();
-        QCString name = rmd->name();
-        if (!scope.isEmpty() && scope!=def->name())
-        {
-          name.prepend(scope+"::");
-        }
-
-        t << refPrefix << "name = ";
-        writeDEFString(t,name);
-        t << ';' << endl << "    };" << endl;
+        name.prepend(scope+"::");
       }
-    } /* for (mdi.toFirst...) */
+
+      t << refPrefix << "name = ";
+      writeDEFString(t,name);
+      t << ';' << endl << "    };" << endl;
+    }
   }
-  mdict = md->getReferencedByMembers();
-  if (mdict)
+  auto refByList = md->getReferencedByMembers();
+  for (const auto &rmd : refByList)
   {
-    MemberSDict::Iterator mdi(*mdict);
-    MemberDef *rmd;
-    QCString refPrefix = "  " + memPrefix + "ref-";
-
-    for (mdi.toFirst();(rmd=mdi.current());++mdi)
+    if (rmd->getStartBodyLine()!=-1 && rmd->getBodyDef())
     {
-      if (rmd->getStartBodyLine()!=-1 && rmd->getBodyDef())
+      t << memPrefix << "referencedby = {" << endl;
+      t << refPrefix << "id = '"
+        << rmd->getBodyDef()->getOutputFileBase()
+        << "_1"   // encoded ':' character (see util.cpp:convertNameToFile)
+        << rmd->anchor() << "';" << endl;
+
+      t << refPrefix << "line = '"
+        << rmd->getStartBodyLine() << "';" << endl;
+
+      QCString scope = rmd->getScopeString();
+      QCString name = rmd->name();
+      if (!scope.isEmpty() && scope!=def->name())
       {
-        t << memPrefix << "referencedby = {" << endl;
-        t << refPrefix << "id = '"
-          << rmd->getBodyDef()->getOutputFileBase()
-          << "_1"   // encoded ':' character (see util.cpp:convertNameToFile)
-          << rmd->anchor() << "';" << endl;
-
-        t << refPrefix << "line = '"
-          << rmd->getStartBodyLine() << "';" << endl;
-
-        QCString scope = rmd->getScopeString();
-        QCString name = rmd->name();
-        if (!scope.isEmpty() && scope!=def->name())
-        {
-          name.prepend(scope+"::");
-        }
-
-        t << refPrefix << "name = ";
-        writeDEFString(t,name);
-        t << ';' << endl << "    };" << endl;
+        name.prepend(scope+"::");
       }
-    } /* for (mdi.toFirst...) */
+
+      t << refPrefix << "name = ";
+      writeDEFString(t,name);
+      t << ';' << endl << "    };" << endl;
+    }
   }
 
   t << "    }; /* " << Prefix << "-member */" << endl;
@@ -358,60 +345,50 @@ void generateDEFForClass(ClassDef *cd,FTextStream &t)
   t << "  cp-id     = '" << cd->getOutputFileBase() << "';" << endl;
   t << "  cp-name   = '" << cd->name() << "';" << endl;
 
-  if (cd->baseClasses())
+  for (const auto &bcd : cd->baseClasses())
   {
-    BaseClassListIterator bcli(*cd->baseClasses());
-    BaseClassDef *bcd;
-    for (bcli.toFirst();(bcd=bcli.current());++bcli)
+    t << "  cp-ref     = {" << endl << "    ref-type = base;" << endl;
+    t << "    ref-id   = '"
+      << bcd.classDef->getOutputFileBase() << "';" << endl;
+    t << "    ref-prot = ";
+    switch (bcd.prot)
     {
-      t << "  cp-ref     = {" << endl << "    ref-type = base;" << endl;
-      t << "    ref-id   = '"
-        << bcd->classDef->getOutputFileBase() << "';" << endl;
-      t << "    ref-prot = ";
-      switch (bcd->prot)
-      {
-        case Public:    t << "public;"    << endl; break;
-        case Package: // package scope is not possible
-        case Protected: t << "protected;" << endl; break;
-        case Private:   t << "private;"   << endl; break;
-      }
-      t << "    ref-virt = ";
-      switch(bcd->virt)
-      {
-        case Normal:  t << "non-virtual;";  break;
-        case Virtual: t << "virtual;";      break;
-        case Pure:    t << "pure-virtual;"; break;
-      }
-      t << endl << "  };" << endl;
+      case Public:    t << "public;"    << endl; break;
+      case Package: // package scope is not possible
+      case Protected: t << "protected;" << endl; break;
+      case Private:   t << "private;"   << endl; break;
     }
+    t << "    ref-virt = ";
+    switch(bcd.virt)
+    {
+      case Normal:  t << "non-virtual;";  break;
+      case Virtual: t << "virtual;";      break;
+      case Pure:    t << "pure-virtual;"; break;
+    }
+    t << endl << "  };" << endl;
   }
 
-  if (cd->subClasses())
+  for (const auto &bcd : cd->subClasses())
   {
-    BaseClassListIterator bcli(*cd->subClasses());
-    BaseClassDef *bcd;
-    for (bcli.toFirst();(bcd=bcli.current());++bcli)
+    t << "  cp-ref     = {" << endl << "    ref-type = derived;" << endl;
+    t << "    ref-id   = '"
+      << bcd.classDef->getOutputFileBase() << "';" << endl;
+    t << "    ref-prot = ";
+    switch (bcd.prot)
     {
-      t << "  cp-ref     = {" << endl << "    ref-type = derived;" << endl;
-      t << "    ref-id   = '"
-        << bcd->classDef->getOutputFileBase() << "';" << endl;
-      t << "    ref-prot = ";
-      switch (bcd->prot)
-      {
-        case Public:    t << "public;"    << endl; break;
-        case Package: // packet scope is not possible!
-        case Protected: t << "protected;" << endl; break;
-        case Private:   t << "private;"   << endl; break;
-      }
-      t << "    ref-virt = ";
-      switch(bcd->virt)
-      {
-        case Normal:  t << "non-virtual;";  break;
-        case Virtual: t << "virtual;";      break;
-        case Pure:    t << "pure-virtual;"; break;
-      }
-      t << endl << "  };" << endl;
+      case Public:    t << "public;"    << endl; break;
+      case Package: // packet scope is not possible!
+      case Protected: t << "protected;" << endl; break;
+      case Private:   t << "private;"   << endl; break;
     }
+    t << "    ref-virt = ";
+    switch (bcd.virt)
+    {
+      case Normal:  t << "non-virtual;";  break;
+      case Virtual: t << "virtual;";      break;
+      case Pure:    t << "pure-virtual;"; break;
+    }
+    t << endl << "  };" << endl;
   }
 
   int numMembers = 0;

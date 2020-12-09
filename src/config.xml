@@ -513,6 +513,16 @@ Go to the <a href="commands.html">next</a> section or return to the
 ]]>
       </docs>
     </option>
+    <option type='bool' id='PYTHON_DOCSTRING' defval='1'>
+      <docs>
+<![CDATA[
+  By default Python docstrings are displayed as preformatted text
+  and doxygen's special commands cannot be used. By setting \c PYTHON_DOCSTRING to
+  \c NO the doxygen's special commands can be used and the contents of the docstring
+  documentation blocks is shown as doxygen documentation.
+]]>
+      </docs>
+    </option>
     <option type='bool' id='INHERIT_DOCS' defval='1'>
       <docs>
 <![CDATA[
@@ -650,7 +660,9 @@ Go to the <a href="commands.html">next</a> section or return to the
 
  <br>Note: For files without extension you can use `no_extension` as a placeholder.
  <br>Note that for custom extensions you also need to set \ref cfg_file_patterns "FILE_PATTERNS" otherwise the
- files are not read by doxygen.
+ files are not read by doxygen. When specifying `no_extension` you should add `*`
+ to the \ref cfg_file_patterns "FILE_PATTERNS".
+ <br>Note see also the list of \ref default_file_extension_mapping "default file extension mappings".
 ]]>
       </docs>
     </option>
@@ -812,6 +824,21 @@ Go to the <a href="commands.html">next</a> section or return to the
 ]]>
       </docs>
     </option>
+    <option type='int' id='NUM_PROC_THREADS' defval='1' minval='0' maxval='32'>
+      <docs>
+<![CDATA[
+ The \c NUM_PROC_THREADS specifies the number threads doxygen is allowed to use during
+ processing. When set to \c 0 doxygen will based this on the number of cores
+ available in the system. You can set it explicitly to a value larger than 0
+ to get more control over the balance between CPU load and processing speed.
+ At this moment only the input processing can be done using multiple threads.
+ Since this is still an experimental feature the default is set to 1,
+ which efficively disables parallel processing. Please report any issues you
+ encounter.
+ Generating dot graphs in parallel is controlled by the \c DOT_NUM_THREADS setting.
+]]>
+      </docs>
+    </option>
   </group>
   <group name='Build' docs='Build related configuration options'>
     <option type='bool' id='EXTRACT_ALL' defval='0'>
@@ -891,6 +918,15 @@ Go to the <a href="commands.html">next</a> section or return to the
 ]]>
       </docs>
     </option>
+    <option type='bool' id='RESOLVE_UNNAMED_PARAMS' defval='1'>
+      <docs>
+<![CDATA[
+ If this flag is set to \c YES, the name of an unnamed parameter in a declaration will be
+ determined by the corresponding definition. By default unnamed parameters remain unnamed
+ in the output.
+]]>
+      </docs>
+    </option>
     <option type='bool' id='HIDE_UNDOC_MEMBERS' defval='0'>
       <docs>
 <![CDATA[
@@ -946,12 +982,20 @@ Go to the <a href="commands.html">next</a> section or return to the
     <option type='bool' id='CASE_SENSE_NAMES' defval='0' altdefval='Portable::fileSystemIsCaseSensitive()'>
       <docs>
 <![CDATA[
- If the \c CASE_SENSE_NAMES tag is set to \c NO then doxygen
- will only generate file names in lower-case letters. If set to
- \c YES, upper-case letters are also allowed. This is useful if you have
- classes or files whose names only differ in case and if your file system
- supports case sensitive file names. Windows (including Cygwin) ands
- Mac users are advised to set this option to \c NO.
+ With the correct setting of option \c CASE_SENSE_NAMES doxygen will better be able to match the
+ capabilities of the underlying filesystem. 
+
+ In case the filesystem is case sensitive (i.e. it supports files in the same directory 
+ whose names only differ in casing), the option must be set to \c YES to properly deal with such files
+ in case they appear in the input. 
+ 
+ For filesystems that are not case sensitive the option should be be set to \c NO to properly 
+ deal with output files written for symbols that only differ in casing, such as for two classes, 
+ one named \c CLASS and the other named \c Class, and to also support references to files without
+ having to specify the exact matching casing.
+
+ On Windows (including Cygwin) and MacOS, users should typically set this option to \c NO,
+ whereas on Linux or other Unix flavors it should typically be set to \c YES.
 ]]>
       </docs>
     </option>
@@ -1292,13 +1336,19 @@ FILE_VERSION_FILTER = "cleartool desc -fmt \%Vn"
 ]]>
       </docs>
     </option>
-    <option type='bool' id='WARN_AS_ERROR' defval='0'>
+    <option type='enum' id='WARN_AS_ERROR' defval='NO'>
       <docs>
 <![CDATA[
  If the \c WARN_AS_ERROR tag is set to \c YES then doxygen will immediately stop
  when a warning is encountered.
+ If the \c WARN_AS_ERROR tag is set to \c FAIL_ON_WARNINGS then doxygen will continue
+ running as if \c WARN_AS_ERROR tag is set to \c NO, but at the end of the doxygen
+ process doxygen will return with a non-zero status.
 ]]>
       </docs>
+      <value name="NO"/>
+      <value name="YES" />
+      <value name="FAIL_ON_WARNINGS" />
     </option>
     <option type='string' id='WARN_FORMAT' format='string' defval='$file:$line: $text'>
       <docs>
@@ -1361,6 +1411,8 @@ FILE_VERSION_FILTER = "cleartool desc -fmt \%Vn"
  Note that for custom extensions or not directly supported extensions you also
  need to set \ref cfg_extension_mapping "EXTENSION_MAPPING" for the extension
  otherwise the files are not read by doxygen.<br>
+ Note the list of default checked file patterns might differ from the list of
+ \ref default_file_extension_mapping "default file extension mappings".<br>
  If left blank the following patterns are tested:
 ]]>
       </docs>
@@ -1395,8 +1447,6 @@ FILE_VERSION_FILTER = "cleartool desc -fmt \%Vn"
       <value name='*.md'/>
       <value name='*.mm'/>
       <value name='*.dox' desc='(to be provided as doxygen C comment)'/>
-      <value name='*.doc' desc='(to be provided as doxygen C comment)'/>
-      <value name='*.txt' desc='(to be provided as doxygen C comment)'/>
       <value name='*.py'/>
       <value name='*.pyw'/>
       <value name='*.f90'/>
@@ -1705,10 +1755,12 @@ to disable this feature.
       <docs>
 <![CDATA[
  If clang assisted parsing is enabled you can provide the clang parser with the
- path to the <a href="http://clang.llvm.org/docs/HowToSetupToolingForLLVM.html">
- compilation database</a> used when the files were built. This is equivalent to
- specifying the "-p" option to a clang tool, such as clang-check. These options
- will then be passed to the parser.
+ path to the directory containing a file called `compile_commands.json`.
+ This file is the <a href="http://clang.llvm.org/docs/HowToSetupToolingForLLVM.html">
+ compilation database</a> containing the options used when the source files were built.
+ This is equivalent to specifying the `-p` option to a clang tool, such as `clang-check`.
+ These options will then be passed to the parser. Any options specified with
+ \ref cfg_clang_options "CLANG_OPTIONS" will be added as well.
 
  @note The availability of this option depends on whether or not doxygen
  was generated with the `-Duse_libclang=ON` option for CMake.
@@ -2154,7 +2206,7 @@ The \c DOCSET_PUBLISHER_NAME tag identifies the documentation publisher.
 <![CDATA[
  The \c GENERATE_CHI flag
  controls if a separate `.chi` index file is generated (\c YES) or that
- it should be included in the master `.chm` file (\c NO).
+ it should be included in the main `.chm` file (\c NO).
 ]]>
       </docs>
     </option>
@@ -2252,7 +2304,9 @@ The \c DOCSET_PUBLISHER_NAME tag identifies the documentation publisher.
     <option type='string' id='QHG_LOCATION' format='file' defval='' depends='GENERATE_QHP'>
       <docs>
 <![CDATA[
- The \c QHG_LOCATION tag can be used to specify the location of Qt's qhelpgenerator.
+ The \c QHG_LOCATION tag can
+ be used to specify the location (absolute path including file name) of
+ Qt's qhelpgenerator.
  If non-empty doxygen will try to run qhelpgenerator on the generated `.qhp` file.
 ]]>
       </docs>
@@ -2409,7 +2463,7 @@ The \c DOCSET_PUBLISHER_NAME tag identifies the documentation publisher.
 <![CDATA[
  When MathJax is enabled you can set the default output format to be used for
  the MathJax output.
- See <a href="http://docs.mathjax.org/en/latest/output.html">the MathJax site</a>
+ See <a href="http://docs.mathjax.org/en/v2.7-latest/output.html">the MathJax site</a>
  for more details.
 ]]>
       </docs>
@@ -2448,7 +2502,7 @@ MATHJAX_EXTENSIONS     = TeX/AMSmath TeX/AMSsymbols
  The \c MATHJAX_CODEFILE tag can be used to specify a file with javascript
  pieces of code that will be used on startup of the MathJax code.
  See
-<a href="http://docs.mathjax.org/en/latest/output.html">the MathJax site</a>
+<a href="http://docs.mathjax.org/en/v2.7-latest/output.html">the MathJax site</a>
  for more details.
 ]]>
       </docs>
@@ -2756,9 +2810,12 @@ or
     <option type='bool' id='USE_PDFLATEX' defval='1' depends='GENERATE_LATEX'>
       <docs>
 <![CDATA[
- If the \c USE_PDFLATEX tag is set to \c YES, doxygen will use
- \c pdflatex to generate the PDF file directly from the \f$\mbox{\LaTeX}\f$
+ If the \c USE_PDFLATEX tag is set to \c YES, doxygen will use the engine
+ as specified with \ref cfg_latex_cmd_name "LATEX_CMD_NAME"
+ to generate the PDF file directly from the \f$\mbox{\LaTeX}\f$
  files.  Set this option to \c YES, to get a higher quality PDF documentation.
+<br>
+ See also section \ref cfg_latex_cmd_name "LATEX_CMD_NAME" for selecting the engine.
 ]]>
       </docs>
     </option>
@@ -3029,9 +3086,8 @@ front of it.
       </docs>
     </option>
   </group>
-<!--
-  <group name='Sqlite3' docs='Configuration options related to Sqlite3 output'>
-    <option type='bool' id='GENERATE_SQLITE3' defval='0'>
+  <group name='Sqlite3' setting='USE_SQLITE3' docs='Configuration options related to Sqlite3 output'>
+    <option type='bool' id='GENERATE_SQLITE3' setting='USE_SQLITE3' defval='0'>
       <docs>
 <![CDATA[
 If the \c GENERATE_SQLITE3 tag is set to \c YES doxygen will generate a
@@ -3039,7 +3095,7 @@ If the \c GENERATE_SQLITE3 tag is set to \c YES doxygen will generate a
 ]]>
       </docs>
     </option>
-    <option type='string' id='SQLITE3_OUTPUT' format='dir' defval='sqlite3' depends='GENERATE_SQLITE3'>
+    <option type='string' id='SQLITE3_OUTPUT' format='dir' defval='sqlite3' setting='USE_SQLITE3' depends='GENERATE_SQLITE3'>
       <docs>
 <![CDATA[
 The \c SQLITE3_OUTPUT tag is used to specify where the \c Sqlite3 database will be put.
@@ -3048,9 +3104,17 @@ put in front of it.
 ]]>
       </docs>
     </option>
+    <option type='bool' id='SQLITE3_RECREATE_DB' defval='1' setting='USE_SQLITE3' depends='GENERATE_SQLITE3'>
+      <docs>
+<![CDATA[
+The \c SQLITE3_OVERWRITE_DB tag is set to \c YES, the existing doxygen_sqlite3.db
+database file will be recreated with each doxygen run.
+If set to \c NO, doxygen will warn if an a database file is already found and not modify it.
+]]>
+      </docs>
+    </option>
 
   </group>
--->
   <group name='PerlMod' docs='Configuration options related to the Perl module output'>
     <option type='bool' id='GENERATE_PERLMOD' defval='0'>
       <docs>
@@ -3372,7 +3436,7 @@ to be found in the default search path.
 ]]>
       </docs>
     </option>
-    <option type='int' id='UML_LIMIT_NUM_FIELDS' defval='10' minval='0' maxval='100' depends='HAVE_DOT'>
+    <option type='int' id='UML_LIMIT_NUM_FIELDS' defval='10' minval='0' maxval='100' depends='UML_LOOK'>
       <docs>
 <![CDATA[
  If the \ref cfg_uml_look "UML_LOOK" tag is enabled, the fields and methods are shown inside
@@ -3383,6 +3447,32 @@ to be found in the default search path.
  exceeded by 50% before the limit is enforced. So when you set the threshold
  to 10, up to 15 fields may appear, but if the number exceeds 15, the
  total amount of fields shown is limited to 10.
+]]>
+      </docs>
+    </option>
+    <option type='enum' id='DOT_UML_DETAILS' defval='NO' depends='UML_LOOK'>
+      <docs>
+<![CDATA[
+If the \c DOT_UML_DETAILS tag is set to \c NO, doxygen will
+show attributes and methods without types and arguments in the UML graphs.
+If the \c DOT_UML_DETAILS tag is set to \c YES, doxygen will
+add type and arguments for attributes and methods in the UML graphs.
+If the \c DOT_UML_DETAILS tag is set to \c NONE, doxygen will not generate
+fields with class member information in the UML graphs.
+The class diagrams will look similar to the default class diagrams but using
+UML notation for the relationships.
+]]>
+      </docs>
+      <value name="NO" />
+      <value name="YES" />
+      <value name="NONE" />
+    </option>
+    <option type='int' id='DOT_WRAP_THRESHOLD' defval='17' minval='0' maxval='1000' depends='HAVE_DOT'>
+      <docs>
+<![CDATA[
+ The \c DOT_WRAP_THRESHOLD tag can be used to set the maximum number of characters to display on
+ a single line. If the actual line length exceeds this threshold significantly it will wrapped
+ across multiple lines. Some heuristics are apply to avoid ugly line breaks.
 ]]>
       </docs>
     </option>
@@ -3632,11 +3722,14 @@ to be found in the default search path.
 ]]>
       </docs>
     </option>
-    <option type='bool' id='DOT_CLEANUP' defval='1' depends='HAVE_DOT'>
+    <option type='bool' id='DOT_CLEANUP' defval='1'>
       <docs>
 <![CDATA[
 If the \c DOT_CLEANUP tag is set to \c YES, doxygen will
-remove the intermediate dot files that are used to generate the various graphs.
+remove the intermediate files that are used to generate the various graphs.
+ <br>Note:
+This setting is not only used for dot files but also for msc and plantuml
+temporary files.
 ]]>
       </docs>
     </option>

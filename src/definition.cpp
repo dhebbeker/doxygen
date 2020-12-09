@@ -16,6 +16,10 @@
  */
 
 #include <algorithm>
+#include <iterator>
+#include <unordered_map>
+#include <string>
+
 #include <ctype.h>
 #include <qregexp.h>
 #include "md5.h"
@@ -46,6 +50,7 @@
 #include "bufstr.h"
 #include "reflist.h"
 
+
 //-----------------------------------------------------------------------------------------
 
 /** Private data associated with a Symbol DefinitionImpl object. */
@@ -56,10 +61,12 @@ class DefinitionImpl::IMPL
     void init(const char *df, const char *n);
     void setDefFileName(const QCString &df);
 
+    Definition *def = 0;
+
     SectionRefs sectionRefs;
 
-    MemberSDict *sourceRefByDict = 0;
-    MemberSDict *sourceRefsDict = 0;
+    std::unordered_map<std::string,const MemberDef *> sourceRefByDict;
+    std::unordered_map<std::string,const MemberDef *> sourceRefsDict;
     RefItemVector xrefListItems;
     GroupList *partOfGroups = 0;
 
@@ -94,14 +101,12 @@ class DefinitionImpl::IMPL
     QCString symbolName;
     int defLine;
     int defColumn;
-    Cookie *cookie;
+    Definition::Cookie *cookie;
 };
 
 
 DefinitionImpl::IMPL::~IMPL()
 {
-  delete sourceRefByDict;
-  delete sourceRefsDict;
   delete partOfGroups;
   delete brief;
   delete details;
@@ -138,8 +143,8 @@ void DefinitionImpl::IMPL::init(const char *df, const char *n)
   details         = 0;
   body            = 0;
   inbodyDocs      = 0;
-  sourceRefByDict = 0;
-  sourceRefsDict  = 0;
+  sourceRefByDict.clear();
+  sourceRefsDict.clear();
   outerScope      = Doxygen::globalScope;
   partOfGroups    = 0;
   hidden          = FALSE;
@@ -159,13 +164,12 @@ void DefinitionImpl::setDefFile(const QCString &df,int defLine,int defCol)
 
 static bool matchExcludedSymbols(const char *name)
 {
-  static QStrList &exclSyms = Config_getList(EXCLUDE_SYMBOLS);
-  if (exclSyms.count()==0) return FALSE; // nothing specified
-  const char *pat = exclSyms.first();
+  const StringVector &exclSyms = Config_getList(EXCLUDE_SYMBOLS);
+  if (exclSyms.empty()) return FALSE; // nothing specified
   QCString symName = name;
-  while (pat)
+  for (const auto &pat : exclSyms)
   {
-    QCString pattern = pat;
+    QCString pattern = pat.c_str();
     bool forceStart=FALSE;
     bool forceEnd=FALSE;
     if (pattern.at(0)=='^')
@@ -177,14 +181,14 @@ static bool matchExcludedSymbols(const char *name)
       QRegExp re(substitute(pattern,"*",".*"),TRUE);
       int pl;
       int i = re.match(symName,0,&pl);
-      //printf("  %d = re.match(%s) pattern=%s\n",i,symName.data(),pattern.data());
+      //printf("  %d = re.match(%s) pattern=%s pl=%d len=%d\n",i,symName.data(),pattern.data(),pl,symName.length());
       if (i!=-1) // wildcard match
       {
         uint ui=(uint)i;
         uint sl=symName.length();
         // check if it is a whole word match
-        if ((ui==0     || pattern.at(0)=='*'     || (!isId(symName.at(ui-1))  && !forceStart)) &&
-            (ui+pl==sl || pattern.at(ui+pl)=='*' || (!isId(symName.at(ui+pl)) && !forceEnd))
+        if ((ui==0     || pattern.at(0)=='*'                  || (!isId(symName.at(ui-1))  && !forceStart)) &&
+            (ui+pl==sl || pattern.at(pattern.length()-1)=='*' || (!isId(symName.at(ui+pl)) && !forceEnd))
            )
         {
           //printf("--> name=%s pattern=%s match at %d\n",symName.data(),pattern.data(),i);
@@ -210,7 +214,6 @@ static bool matchExcludedSymbols(const char *name)
         }
       }
     }
-    pat = exclSyms.next();
   }
   //printf("--> name=%s: no match\n",name);
   return FALSE;
@@ -224,86 +227,30 @@ static void addToMap(const char *name,Definition *d)
   if (!vhdlOpt && index!=-1) symbolName=symbolName.mid(index+2);
   if (!symbolName.isEmpty())
   {
-    //printf("******* adding symbol '%s' (%p)\n",symbolName.data(),d);
-    DefinitionIntf *di=Doxygen::symbolMap->find(symbolName);
-    //printf("  addToMap(%p): looking for symbol %s: %p\n",d,symbolName.data(),di);
-    if (di==0) // new Symbol
-    {
-      //printf("  new symbol!\n");
-      Doxygen::symbolMap->insert(symbolName,d);
-    }
-    else // existing symbol
-    {
-      //printf("  existing symbol: ");
-      if (di->definitionType()==DefinitionIntf::TypeSymbolList) // already multiple symbols
-      {
-        //printf("adding to exiting list\n");
-        DefinitionList *dl = (DefinitionList*)di;
-        dl->append(d);
-      }
-      else // going from one to two symbols
-      {
-        Doxygen::symbolMap->take(symbolName);
-        DefinitionList *dl = new DefinitionList;
-        //printf("replacing symbol by list %p with elements %p and %p\n",dl,di,d);
-        dl->append((Definition*)di);
-        dl->append(d);
-        Doxygen::symbolMap->insert(symbolName,dl);
-      }
-    }
-
-    // auto resize if needed
-    static int sizeIndex=9;
-    if (Doxygen::symbolMap->size()>SDict_primes[sizeIndex])
-    {
-      Doxygen::symbolMap->resize(SDict_primes[++sizeIndex]);
-    }
+    Doxygen::symbolMap.add(symbolName,d);
 
     d->_setSymbolName(symbolName);
   }
 }
 
-static void removeFromMap(Definition *d)
+static void removeFromMap(const char *name,Definition *d)
 {
-  QCString symbolName = d->_symbolName();
-  if (!symbolName.isEmpty())
-  {
-    //printf("******* removing symbol '%s' (%p)\n",symbolName.data(),d);
-    DefinitionIntf *di=Doxygen::symbolMap->find(symbolName);
-    if (di)
-    {
-      if (di!=d) // symbolName not unique
-      {
-        //printf("  removing from list: %p!\n",di);
-        DefinitionList *dl = (DefinitionList*)di;
-        bool b = dl->removeRef(d);
-        ASSERT(b==TRUE);
-        if (dl->isEmpty())
-        {
-          Doxygen::symbolMap->take(symbolName);
-          delete dl;
-        }
-      }
-      else // symbolName unique
-      {
-        //printf("  removing symbol %p\n",di);
-        Doxygen::symbolMap->take(symbolName);
-      }
-    }
-  }
+  Doxygen::symbolMap.remove(name,d);
 }
 
-DefinitionImpl::DefinitionImpl(const char *df,int dl,int dc,
+DefinitionImpl::DefinitionImpl(Definition *def,
+                       const char *df,int dl,int dc,
                        const char *name,const char *b,
                        const char *d,bool isSymbol)
 {
   m_impl = new DefinitionImpl::IMPL;
   setName(name);
+  m_impl->def = def;
   m_impl->defLine = dl;
   m_impl->defColumn = dc;
   m_impl->init(df,name);
   m_impl->isSymbol = isSymbol;
-  if (isSymbol) addToMap(name,this);
+  if (isSymbol) addToMap(name,def);
   _setBriefDescription(b,df,dl);
   _setDocumentation(d,df,dl,TRUE,FALSE);
   if (matchExcludedSymbols(name))
@@ -316,33 +263,11 @@ DefinitionImpl::DefinitionImpl(const DefinitionImpl &d)
 {
   m_impl = new DefinitionImpl::IMPL;
   *m_impl = *d.m_impl;
-  m_impl->sourceRefByDict = 0;
-  m_impl->sourceRefsDict = 0;
   m_impl->partOfGroups = 0;
   m_impl->brief = 0;
   m_impl->details = 0;
   m_impl->body = 0;
   m_impl->inbodyDocs = 0;
-  if (d.m_impl->sourceRefByDict)
-  {
-    m_impl->sourceRefByDict = new MemberSDict;
-    MemberSDict::IteratorDict it(*d.m_impl->sourceRefByDict);
-    MemberDef *md;
-    for (it.toFirst();(md=it.current());++it)
-    {
-      m_impl->sourceRefByDict->append(it.currentKey(),md);
-    }
-  }
-  if (d.m_impl->sourceRefsDict)
-  {
-    m_impl->sourceRefsDict = new MemberSDict;
-    MemberSDict::IteratorDict it(*d.m_impl->sourceRefsDict);
-    MemberDef *md;
-    for (it.toFirst();(md=it.current());++it)
-    {
-      m_impl->sourceRefsDict->append(it.currentKey(),md);
-    }
-  }
   if (d.m_impl->partOfGroups)
   {
     GroupListIterator it(*d.m_impl->partOfGroups);
@@ -369,14 +294,14 @@ DefinitionImpl::DefinitionImpl(const DefinitionImpl &d)
     m_impl->inbodyDocs = new DocInfo(*d.m_impl->inbodyDocs);
   }
 
-  if (m_impl->isSymbol) addToMap(m_impl->name,this);
+  if (m_impl->isSymbol) addToMap(m_impl->name,m_impl->def);
 }
 
 DefinitionImpl::~DefinitionImpl()
 {
   if (m_impl->isSymbol)
   {
-    removeFromMap(this);
+    removeFromMap(m_impl->symbolName,m_impl->def);
   }
   if (m_impl)
   {
@@ -401,7 +326,7 @@ void DefinitionImpl::setId(const char *id)
   if (Doxygen::clangUsrMap)
   {
     //printf("DefinitionImpl::setId '%s'->'%s'\n",id,m_impl->name.data());
-    Doxygen::clangUsrMap->insert(id,this);
+    Doxygen::clangUsrMap->insert(id,m_impl->def);
   }
 }
 
@@ -427,7 +352,7 @@ void DefinitionImpl::addSectionsToDefinition(const std::vector<const SectionInfo
     if (m_impl->sectionRefs.find(gsi->label())==0)
     {
       m_impl->sectionRefs.add(gsi);
-      gsi->setDefinition(this);
+      gsi->setDefinition(m_impl->def);
     }
   }
 }
@@ -483,7 +408,7 @@ void DefinitionImpl::addSectionsToIndex()
                        ((int)((*it_next)->type()) > nextLevel) : FALSE;
       Doxygen::indexList->addContentsItem(isDir,title,
                                          getReference(),
-                                         getOutputFileBase(),
+                                         m_impl->def->getOutputFileBase(),
                                          si->label(),
                                          FALSE,
                                          TRUE);
@@ -507,7 +432,7 @@ void DefinitionImpl::writeDocAnchorsToTagFile(FTextStream &tagFile) const
       if (!si->generated() && si->ref().isEmpty() && !si->label().startsWith("autotoc_md"))
       {
         //printf("write an entry!\n");
-        if (definitionType()==TypeMember) tagFile << "  ";
+        if (m_impl->def->definitionType()==Definition::TypeMember) tagFile << "  ";
         tagFile << "    <docanchor file=\"" << addHtmlExtensionIfMissing(si->fileName()) << "\"";
         if (!si->title().isEmpty())
         {
@@ -614,6 +539,8 @@ void DefinitionImpl::_setBriefDescription(const char *b,const char *briefFile,in
                          outputLanguage!="Chinese" &&
                          outputLanguage!="Korean";
   QCString brief = b;
+  brief = brief.stripWhiteSpace();
+  brief = stripLeadingAndTrailingEmptyLines(brief,briefLine);
   brief = brief.stripWhiteSpace();
   if (brief.isEmpty()) return;
   uint bl = brief.length();
@@ -978,7 +905,7 @@ bool readCodeFragment(const char *fileName,
 
 QCString DefinitionImpl::getSourceFileBase() const
 {
-  ASSERT(definitionType()!=Definition::TypeFile); // file overloads this method
+  ASSERT(m_impl->def->definitionType()!=Definition::TypeFile); // file overloads this method
   QCString fn;
   static bool sourceBrowser = Config_getBool(SOURCE_BROWSER);
   if (sourceBrowser &&
@@ -1236,37 +1163,56 @@ void DefinitionImpl::writeInlineCode(OutputList &ol,const char *scopeName) const
     {
       //printf("Adding code fragment '%s' ext='%s'\n",
       //    codeFragment.data(),m_impl->defFileExt.data());
-      CodeParserInterface &intf = Doxygen::parserManager->getCodeParser(m_impl->defFileExt);
-      intf.resetCodeParserState();
+      auto intf = Doxygen::parserManager->getCodeParser(m_impl->defFileExt);
+      intf->resetCodeParserState();
       //printf("Read:\n'%s'\n\n",codeFragment.data());
       const MemberDef *thisMd = 0;
-      if (definitionType()==TypeMember) thisMd = dynamic_cast <const MemberDef*>(this);
+      if (m_impl->def->definitionType()==Definition::TypeMember)
+      {
+        thisMd = toMemberDef(m_impl->def);
+      }
 
-      ol.startCodeFragment();
-      intf.parseCode(ol,               // codeOutIntf
-                     scopeName,        // scope
-                     codeFragment,     // input
-                     m_impl->lang,     // lang
-                     FALSE,            // isExample
-                     0,                // exampleName
-                     m_impl->body->fileDef,  // fileDef
-                     actualStart,      // startLine
-                     actualEnd,        // endLine
-                     TRUE,             // inlineFragment
-                     thisMd,           // memberDef
-                     TRUE              // show line numbers
-                    );
-      ol.endCodeFragment();
+      ol.startCodeFragment("DoxyCode");
+      intf->parseCode(ol,               // codeOutIntf
+                      scopeName,        // scope
+                      codeFragment,     // input
+                      m_impl->lang,     // lang
+                      FALSE,            // isExample
+                      0,                // exampleName
+                      m_impl->body->fileDef,  // fileDef
+                      actualStart,      // startLine
+                      actualEnd,        // endLine
+                      TRUE,             // inlineFragment
+                      thisMd,           // memberDef
+                      TRUE              // show line numbers
+                     );
+      ol.endCodeFragment("DoxyCode");
     }
   }
   ol.popGeneratorState();
+}
+
+static inline std::vector<const MemberDef*> refMapToVector(const std::unordered_map<std::string,const MemberDef *> &map)
+{
+  // convert map to a vector of values
+  std::vector<const MemberDef *> result;
+  std::transform(map.begin(),map.end(),      // iterate over map
+                 std::back_inserter(result), // add results to vector
+                 [](const auto &item)
+                 { return item.second; }     // extract value to add from map Key,Value pair
+                );
+  // and sort it
+  std::sort(result.begin(),result.end(),
+              [](const auto &m1,const auto &m2) { return genericCompareMembers(m1,m2)<0; });
+  return result;
 }
 
 /*! Write a reference to the source code fragments in which this
  *  definition is used.
  */
 void DefinitionImpl::_writeSourceRefList(OutputList &ol,const char *scopeName,
-    const QCString &text,MemberSDict *members,bool /*funcOnly*/) const
+    const QCString &text,const std::unordered_map<std::string,const MemberDef *> &membersMap,
+    bool /*funcOnly*/) const
 {
   static bool latexSourceCode = Config_getBool(LATEX_SOURCE_CODE);
   static bool docbookSourceCode   = Config_getBool(DOCBOOK_PROGRAMLISTING);
@@ -1274,15 +1220,15 @@ void DefinitionImpl::_writeSourceRefList(OutputList &ol,const char *scopeName,
   static bool sourceBrowser   = Config_getBool(SOURCE_BROWSER);
   static bool refLinkSource   = Config_getBool(REFERENCES_LINK_SOURCE);
   ol.pushGeneratorState();
-  if (members)
+  if (!membersMap.empty())
   {
-    members->sort();
+    auto members = refMapToVector(membersMap);
 
     ol.startParagraph("reference");
     ol.parseText(text);
     ol.docify(" ");
 
-    QCString ldefLine=theTranslator->trWriteList((int)members->count());
+    QCString ldefLine=theTranslator->trWriteList((int)members.size());
 
     QRegExp marker("@[0-9]+");
     uint index=0;
@@ -1294,7 +1240,7 @@ void DefinitionImpl::_writeSourceRefList(OutputList &ol,const char *scopeName,
       bool ok;
       ol.parseText(ldefLine.mid(index,(uint)newIndex-index));
       uint entryIndex = ldefLine.mid(newIndex+1,matchLen-1).toUInt(&ok);
-      MemberDef *md=members->at(entryIndex);
+      const MemberDef *md=members.at(entryIndex);
       if (ok && md)
       {
         QCString scope=md->getScopeString();
@@ -1466,14 +1412,7 @@ void DefinitionImpl::addSourceReferencedBy(const MemberDef *md)
       name.prepend(scope+"::");
     }
 
-    if (m_impl->sourceRefByDict==0)
-    {
-      m_impl->sourceRefByDict = new MemberSDict;
-    }
-    if (m_impl->sourceRefByDict->find(name)==0)
-    {
-      m_impl->sourceRefByDict->append(name,md);
-    }
+    m_impl->sourceRefByDict.insert({name.str(),md});
   }
 }
 
@@ -1489,18 +1428,11 @@ void DefinitionImpl::addSourceReferences(const MemberDef *md)
       name.prepend(scope+"::");
     }
 
-    if (m_impl->sourceRefsDict==0)
-    {
-      m_impl->sourceRefsDict = new MemberSDict;
-    }
-    if (m_impl->sourceRefsDict->find(name)==0)
-    {
-      m_impl->sourceRefsDict->append(name,md);
-    }
+    m_impl->sourceRefsDict.insert({name.str(),md});
   }
 }
 
-Definition *DefinitionImpl::findInnerCompound(const char *) const
+const Definition *DefinitionImpl::findInnerCompound(const char *) const
 {
   return 0;
 }
@@ -1635,16 +1567,18 @@ QCString DefinitionImpl::pathFragment() const
   {
     result = m_impl->outerScope->pathFragment();
   }
-  if (isLinkable())
+  if (m_impl->def->isLinkable())
   {
     if (!result.isEmpty()) result+="/";
-    if (definitionType()==Definition::TypeGroup && (dynamic_cast <const GroupDef*>(this))->groupTitle())
+    if (m_impl->def->definitionType()==Definition::TypeGroup &&
+        (toGroupDef(m_impl->def))->groupTitle())
     {
-      result+=(dynamic_cast <const GroupDef*>(this))->groupTitle();
+      result+=(toGroupDef(m_impl->def))->groupTitle();
     }
-    else if (definitionType()==Definition::TypePage && (dynamic_cast <const PageDef*>(this))->hasTitle())
+    else if (m_impl->def->definitionType()==Definition::TypePage &&
+        (toPageDef(m_impl->def))->hasTitle())
     {
-      result+=(dynamic_cast <const PageDef*>(this))->title();
+      result+=(toPageDef(m_impl->def))->title();
     }
     else
     {
@@ -1673,37 +1607,37 @@ QCString DefinitionImpl::navigationPathAsString() const
   {
     result+=outerScope->navigationPathAsString();
   }
-  else if (definitionType()==Definition::TypeFile && (dynamic_cast<const FileDef*>(this))->getDirDef())
+  else if (m_impl->def->definitionType()==Definition::TypeFile && (toFileDef(m_impl->def))->getDirDef())
   {
-    result+=(dynamic_cast<const FileDef*>(this))->getDirDef()->navigationPathAsString();
+    result+=(toFileDef(m_impl->def))->getDirDef()->navigationPathAsString();
   }
   result+="<li class=\"navelem\">";
-  if (isLinkable())
+  if (m_impl->def->isLinkable())
   {
-    if (definitionType()==Definition::TypeGroup && (dynamic_cast<const GroupDef*>(this))->groupTitle())
+    if (m_impl->def->definitionType()==Definition::TypeGroup && (toGroupDef(m_impl->def))->groupTitle())
     {
-      result+="<a class=\"el\" href=\"$relpath^"+getOutputFileBase()+Doxygen::htmlFileExtension+"\">"+
-              convertToHtml((dynamic_cast<const GroupDef*>(this))->groupTitle())+"</a>";
+      result+="<a class=\"el\" href=\"$relpath^"+m_impl->def->getOutputFileBase()+Doxygen::htmlFileExtension+"\">"+
+              convertToHtml((toGroupDef(m_impl->def))->groupTitle())+"</a>";
     }
-    else if (definitionType()==Definition::TypePage && (dynamic_cast<const PageDef*>(this))->hasTitle())
+    else if (m_impl->def->definitionType()==Definition::TypePage && (toPageDef(m_impl->def))->hasTitle())
     {
-      result+="<a class=\"el\" href=\"$relpath^"+getOutputFileBase()+Doxygen::htmlFileExtension+"\">"+
-            convertToHtml((dynamic_cast<const PageDef*>(this))->title())+"</a>";
+      result+="<a class=\"el\" href=\"$relpath^"+m_impl->def->getOutputFileBase()+Doxygen::htmlFileExtension+"\">"+
+            convertToHtml((toPageDef(m_impl->def))->title())+"</a>";
     }
-    else if (definitionType()==Definition::TypeClass)
+    else if (m_impl->def->definitionType()==Definition::TypeClass)
     {
       QCString name = locName;
       if (name.right(2)=="-p" /*|| name.right(2)=="-g"*/)
       {
         name = name.left(name.length()-2);
       }
-      result+="<a class=\"el\" href=\"$relpath^"+getOutputFileBase()+Doxygen::htmlFileExtension;
-      if (!anchor().isEmpty()) result+="#"+anchor();
+      result+="<a class=\"el\" href=\"$relpath^"+m_impl->def->getOutputFileBase()+Doxygen::htmlFileExtension;
+      if (!m_impl->def->anchor().isEmpty()) result+="#"+m_impl->def->anchor();
       result+="\">"+convertToHtml(name)+"</a>";
     }
     else
     {
-      result+="<a class=\"el\" href=\"$relpath^"+getOutputFileBase()+Doxygen::htmlFileExtension+"\">"+
+      result+="<a class=\"el\" href=\"$relpath^"+m_impl->def->getOutputFileBase()+Doxygen::htmlFileExtension+"\">"+
               convertToHtml(locName)+"</a>";
     }
   }
@@ -1930,15 +1864,13 @@ QCString abbreviate(const char *s,const char *name)
     result=result.left(result.length()-1);
 
   // strip any predefined prefix
-  QStrList &briefDescAbbrev = Config_getList(ABBREVIATE_BRIEF);
-  const char *p = briefDescAbbrev.first();
-  while (p)
+  const StringVector &briefDescAbbrev = Config_getList(ABBREVIATE_BRIEF);
+  for (const auto &p : briefDescAbbrev)
   {
-    QCString str = p;
+    QCString str = p.c_str();
     str.replace(QRegExp("\\$name"), scopelessName);  // replace $name with entity name
     str += " ";
     stripWord(result,str);
-    p = briefDescAbbrev.next();
   }
 
   // capitalize first word
@@ -1958,33 +1890,24 @@ QCString DefinitionImpl::briefDescription(bool abbr) const
 {
   //printf("%s::briefDescription(%d)='%s'\n",name().data(),abbr,m_impl->brief?m_impl->brief->doc.data():"<none>");
   return m_impl->brief ?
-         (abbr ? abbreviate(m_impl->brief->doc,displayName()) : m_impl->brief->doc) :
+         (abbr ? abbreviate(m_impl->brief->doc,m_impl->def->displayName()) : m_impl->brief->doc) :
          QCString("");
+}
+
+void DefinitionImpl::computeTooltip()
+{
+  if (m_impl->brief && m_impl->brief->tooltip.isEmpty() && !m_impl->brief->doc.isEmpty())
+  {
+    const MemberDef *md = m_impl->def->definitionType()==Definition::TypeMember ? toMemberDef(m_impl->def) : 0;
+    const Definition *scope = m_impl->def->definitionType()==Definition::TypeMember ? m_impl->def->getOuterScope() : m_impl->def;
+    m_impl->brief->tooltip = parseCommentAsText(scope,md,
+                                m_impl->brief->doc, m_impl->brief->file, m_impl->brief->line);
+  }
 }
 
 QCString DefinitionImpl::briefDescriptionAsTooltip() const
 {
-  if (m_impl->brief)
-  {
-    if (m_impl->brief->tooltip.isEmpty() && !m_impl->brief->doc.isEmpty())
-    {
-      static bool reentering=FALSE;
-      if (!reentering)
-      {
-        const MemberDef *md = definitionType()==TypeMember ? dynamic_cast<const MemberDef*>(this) : 0;
-        const Definition *scope = definitionType()==TypeMember ? getOuterScope() : this;
-        reentering=TRUE; // prevent requests for tooltips while parsing a tooltip
-        m_impl->brief->tooltip = parseCommentAsText(
-            scope,md,
-            m_impl->brief->doc,
-            m_impl->brief->file,
-            m_impl->brief->line);
-        reentering=FALSE;
-      }
-    }
-    return m_impl->brief->tooltip;
-  }
-  return QCString("");
+  return m_impl->brief ? m_impl->brief->tooltip : QCString();
 }
 
 int DefinitionImpl::briefLine() const
@@ -2034,12 +1957,12 @@ bool DefinitionImpl::isHidden() const
 
 bool DefinitionImpl::isVisibleInProject() const
 {
-  return isLinkableInProject() && !m_impl->hidden;
+  return m_impl->def->isLinkableInProject() && !m_impl->hidden;
 }
 
 bool DefinitionImpl::isVisible() const
 {
-  return isLinkable() && !m_impl->hidden;
+  return m_impl->def->isLinkable() && !m_impl->hidden;
 }
 
 bool DefinitionImpl::isArtificial() const
@@ -2102,15 +2025,48 @@ Definition *DefinitionImpl::getOuterScope() const
   return m_impl->outerScope;
 }
 
-MemberSDict *DefinitionImpl::getReferencesMembers() const
+std::vector<const MemberDef*> DefinitionImpl::getReferencesMembers() const
 {
-  return m_impl->sourceRefsDict;
+  return refMapToVector(m_impl->sourceRefsDict);
 }
 
-MemberSDict *DefinitionImpl::getReferencedByMembers() const
+std::vector<const MemberDef*> DefinitionImpl::getReferencedByMembers() const
 {
-  return m_impl->sourceRefByDict;
+  return refMapToVector(m_impl->sourceRefByDict);
 }
+
+void DefinitionImpl::mergeReferences(const Definition *other)
+{
+  const DefinitionImpl *defImpl = other->toDefinitionImpl_();
+  if (defImpl)
+  {
+    for (const auto &kv : defImpl->m_impl->sourceRefsDict)
+    {
+      auto it = m_impl->sourceRefsDict.find(kv.first);
+      if (it != m_impl->sourceRefsDict.end())
+      {
+        m_impl->sourceRefsDict.insert(kv);
+      }
+    }
+  }
+}
+
+void DefinitionImpl::mergeReferencedBy(const Definition *other)
+{
+  const DefinitionImpl *defImpl = other->toDefinitionImpl_();
+  if (defImpl)
+  {
+    for (const auto &kv : defImpl->m_impl->sourceRefByDict)
+    {
+      auto it = m_impl->sourceRefByDict.find(kv.first);
+      if (it != m_impl->sourceRefByDict.end())
+      {
+        m_impl->sourceRefByDict.insert({kv.first,kv.second});
+      }
+    }
+  }
+}
+
 
 void DefinitionImpl::setReference(const char *r)
 {
@@ -2201,7 +2157,7 @@ int DefinitionImpl::getDefColumn() const
   return m_impl->defColumn;
 }
 
-void DefinitionImpl::setCookie(Cookie *cookie) const
+void DefinitionImpl::setCookie(Definition::Cookie *cookie) const
 {
   delete m_impl->cookie;
   m_impl->cookie = cookie;
@@ -2222,16 +2178,62 @@ void DefinitionImpl::writeSummaryLinks(OutputList &) const
 
 //---------------------------------------------------------------------------------
 
-DefinitionAliasImpl::DefinitionAliasImpl(const Definition *scope,const Definition *alias)
-      : m_scope(scope), m_def(alias), m_cookie(0)
+DefinitionAliasImpl::DefinitionAliasImpl(Definition *def,const Definition *scope, const Definition *alias)
+      : m_def(def), m_scope(scope), m_symbolName(alias->_symbolName())
 {
-  //printf("%s::addToMap(%s)\n",qPrint(name()),qPrint(alias->name()));
-  addToMap(alias->name(),this);
 }
 
 DefinitionAliasImpl::~DefinitionAliasImpl()
 {
-  //printf("~DefinitionAliasImpl()\n");
-  removeFromMap(this);
+}
+
+void DefinitionAliasImpl::init()
+{
+  //printf("%s::addToMap(%s)\n",qPrint(name()),qPrint(alias->name()));
+  addToMap(m_symbolName,m_def);
+}
+
+void DefinitionAliasImpl::deinit()
+{
+  removeFromMap(m_symbolName,m_def);
+}
+
+QCString DefinitionAliasImpl::qualifiedName() const
+{
+  //printf("start %s::qualifiedName() localName=%s\n",name().data(),m_impl->localName.data());
+  if (m_scope==0)
+  {
+    return m_def->localName();
+  }
+  else
+  {
+    return m_scope->qualifiedName()+
+           getLanguageSpecificSeparator(m_scope->getLanguage())+
+           m_def->localName();
+  }
+}
+
+QCString DefinitionAliasImpl::name() const
+{
+  return qualifiedName();
+}
+
+//---------------------------------------------------------------------------------
+
+Definition *toDefinition(DefinitionMutable *dm)
+{
+  if (dm==0) return 0;
+  return dm->toDefinition_();
+}
+
+DefinitionMutable *toDefinitionMutable(Definition *d)
+{
+  if (d==0) return 0;
+  return d->toDefinitionMutable_();
+}
+
+DefinitionMutable *toDefinitionMutable(const Definition *d)
+{
+  return toDefinitionMutable(const_cast<Definition*>(d));
 }
 

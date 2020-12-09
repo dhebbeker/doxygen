@@ -144,6 +144,7 @@ documentation:
 \refitem cmdn \\n
 \refitem cmdname \\name
 \refitem cmdnamespace \\namespace
+\refitem cmdnoop \\noop
 \refitem cmdnosubgrouping \\nosubgrouping
 \refitem cmdnote \\note
 \refitem cmdoverload \\overload
@@ -193,6 +194,7 @@ documentation:
 \refitem cmdsnippet \\snippet
 \refitem cmdsnippetdoc \\snippetdoc
 \refitem cmdsnippetlineno \\snippetlineno
+\refitem cmdstatic \\static
 \refitem cmdstartuml \\startuml
 \refitem cmdstruct \\struct
 \refitem cmdsubpage \\subpage
@@ -2798,6 +2800,10 @@ only copy the detailed documentation, not the brief description.
   The nodes of a graph can be made clickable by using the URL attribute.
   By using the command \ref cmdref "\\ref" inside the URL value you can conveniently
   link to an item inside doxygen. Here is an example:
+
+  \note doxygen creates a temporary file that is automatically removed unless
+  the \ref cfg_dot_cleanup "DOT_CLEANUP" tag is set to `NO`.
+
 \code
 /*! class B */
 class B {};
@@ -2861,6 +2867,8 @@ See also the \ref emojisup "emoji support page" for details.
   within the <code>msc {...}</code> block (this is different from
   \ref cmdmscfile "\\mscfile").
   \note mscgen is now built in into doxygen
+  \note doxygen creates a temporary file that is automatically removed unless
+  the \ref cfg_dot_cleanup "DOT_CLEANUP" tag is set to `NO`.
 
 Here is an example of the use of the \c \\msc command.
 \code
@@ -2903,7 +2911,7 @@ class Receiver
 
   \addindex \\startuml
   Starts a text fragment which should contain a valid description of a
-  PlantUML diagram. See http://plantuml.com/ for examples.
+  PlantUML diagram. See https://plantuml.com/ for examples.
   The text fragment ends with \ref cmdenduml "\\enduml".
   \note You need to install Java and the PlantUML's jar file,
   if you want to use this command. The location of the jar file should be specified
@@ -2930,6 +2938,9 @@ class Receiver
   For a description of the possibilities see the paragraph
   \ref image_sizeindicator "Size indication" with the
   \ref cmdimage "\\image" command.
+
+  \note doxygen creates a temporary file that is automatically removed unless
+  the \ref cfg_dot_cleanup "DOT_CLEANUP" tag is set to `NO`.
 
 Here is an example of the use of the \c \\startuml command.
 \code

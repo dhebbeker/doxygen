@@ -40,6 +40,8 @@ class GroupDef;
 class GroupList;
 class SectionInfo;
 class Definition;
+class DefinitionMutable;
+class DefinitionImpl;
 class FTextStream;
 
 /** Data associated with a detailed description. */
@@ -68,12 +70,19 @@ struct BodyInfo
     FileDef *fileDef;     //!< file definition containing the function body
 };
 
-/** Abstract interface for a Definition or DefinitionList */
-class DefinitionIntf
+/** The common base class of all entity definitions found in the sources.
+ *
+ *  This can be a class or a member function, or a file, or a namespace, etc.
+ *  Use definitionType() to find which type of definition this is.
+ */
+class Definition
 {
   public:
-    DefinitionIntf() {}
-    virtual ~DefinitionIntf() {}
+    struct Cookie
+    {
+      virtual ~Cookie() {}
+    };
+
     /*! Types of derived classes */
     enum DefType
     {
@@ -84,29 +93,17 @@ class DefinitionIntf
       TypeGroup      = 4,
       TypePackage    = 5,
       TypePage       = 6,
-      TypeDir        = 7,
-      TypeSymbolList = 8
+      TypeDir        = 7
     };
-    /*! Use this for dynamic inspection of the type of the derived class */
-    virtual DefType definitionType() const = 0;
-};
 
-/** The common base class of all entity definitions found in the sources.
- *
- *  This can be a class or a member function, or a file, or a namespace, etc.
- *  Use definitionType() to find which type of definition this is.
- */
-class Definition : public DefinitionIntf
-{
-  public:
-    struct Cookie
-    {
-      virtual ~Cookie() {}
-    };
 
     //-----------------------------------------------------------------------------------
     // ----  getters -----
     //-----------------------------------------------------------------------------------
+
+    /*! Use this for dynamic inspection of the type of the derived class */
+    virtual DefType definitionType() const = 0;
+
     /*! Returns TRUE if this is an alias of another definition */
     virtual bool isAlias() const = 0;
 
@@ -269,11 +266,11 @@ class Definition : public DefinitionIntf
 
     virtual const RefItemVector &xrefListItems() const = 0;
 
-    virtual Definition *findInnerCompound(const char *name) const = 0;
+    virtual const Definition *findInnerCompound(const char *name) const = 0;
     virtual Definition *getOuterScope() const = 0;
 
-    virtual MemberSDict *getReferencesMembers() const = 0;
-    virtual MemberSDict *getReferencedByMembers() const = 0;
+    virtual std::vector<const MemberDef *> getReferencesMembers() const = 0;
+    virtual std::vector<const MemberDef *> getReferencedByMembers() const = 0;
 
     virtual bool hasSections() const = 0;
     virtual bool hasSources() const = 0;
@@ -288,6 +285,34 @@ class Definition : public DefinitionIntf
 
     virtual QCString navigationPathAsString() const = 0;
     virtual QCString pathFragment() const = 0;
+
+    //-----------------------------------------------------------------------------------
+    // --- cookie storage ----
+    //-----------------------------------------------------------------------------------
+    virtual void setCookie(Cookie *cookie) const = 0;
+    virtual Cookie *cookie() const = 0;
+
+    //-----------------------------------------------------------------------------------
+    // --- symbol name ----
+    //-----------------------------------------------------------------------------------
+    virtual void _setSymbolName(const QCString &name) = 0;
+    virtual QCString _symbolName() const = 0;
+
+    // ---------------------------------
+    virtual ~Definition() = default;
+
+  private:
+    friend class DefinitionImpl;
+    friend DefinitionMutable* toDefinitionMutable(Definition *);
+    friend DefinitionMutable* toDefinitionMutable(const Definition *);
+    virtual DefinitionMutable *toDefinitionMutable_() = 0;
+    virtual const DefinitionImpl *toDefinitionImpl_() const = 0;
+};
+
+class DefinitionMutable
+{
+  public:
+
 
     //-----------------------------------------------------------------------------------
     // ----  setters -----
@@ -347,6 +372,9 @@ class Definition : public DefinitionIntf
     virtual void mergeRefItems(Definition *d) = 0;
     virtual void addInnerCompound(const Definition *d) = 0;
     virtual void addSectionsToIndex() = 0;
+    virtual void mergeReferences(const Definition *other) = 0;
+    virtual void mergeReferencedBy(const Definition *other) = 0;
+    virtual void computeTooltip() = 0;
 
     //-----------------------------------------------------------------------------------
     // --- writing output ----
@@ -361,40 +389,17 @@ class Definition : public DefinitionIntf
     virtual void writeDocAnchorsToTagFile(FTextStream &) const = 0;
     virtual void writeToc(OutputList &ol, const LocalToc &lt) const = 0;
 
-    //-----------------------------------------------------------------------------------
-    // --- cookie storage ----
-    //-----------------------------------------------------------------------------------
-    virtual void setCookie(Cookie *cookie) const = 0;
-    virtual Cookie *cookie() const = 0;
+    // ---------------------------------
+    virtual ~DefinitionMutable() = default;
 
-    //-----------------------------------------------------------------------------------
-    // --- symbol name ----
-    //-----------------------------------------------------------------------------------
-    virtual void _setSymbolName(const QCString &name) = 0;
-    virtual QCString _symbolName() const = 0;
+  private:
+    friend Definition* toDefinition(DefinitionMutable *);
+    virtual Definition *toDefinition_() = 0;
 };
 
-/** A list of Definition objects. */
-class DefinitionList : public QList<Definition>, public DefinitionIntf
-{
-  public:
-    ~DefinitionList() {}
-    DefType definitionType() const { return TypeSymbolList; }
-    int compareValues(const Definition *item1,const Definition *item2) const
-    {
-      return qstricmp(item1->name(),item2->name());
-    }
-
-};
-
-/** An iterator for Definition objects in a DefinitionList. */
-class DefinitionListIterator : public QListIterator<Definition>
-{
-  public:
-    DefinitionListIterator(const DefinitionList &l) :
-      QListIterator<Definition>(l) {}
-    ~DefinitionListIterator() {}
-};
+Definition          *toDefinition(DefinitionMutable *dm);
+DefinitionMutable   *toDefinitionMutable(Definition *d);
+DefinitionMutable   *toDefinitionMutable(const Definition *d);
 
 /** Reads a fragment from file \a fileName starting with line \a startLine
  *  and ending with line \a endLine. The result is returned as a string

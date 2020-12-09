@@ -21,26 +21,30 @@
 #include <memory>
 #include <string>
 #include <algorithm>
+#include <cctype>
 
-//! @brief Container class representing a vector of objects with unique keys.
+//! @brief Container class representing a vector of objects with keys.
 //! @details Objects can efficiently be looked up given the key.
 //! Objects are owned by the container.
 //! When adding objects the order of addition is kept, and used while iterating.
-template<class T>
+template<class T, class Hash = std::hash<std::string>,
+                  class KeyEqual = std::equal_to<std::string>,
+                  class Map = std::unordered_map<std::string,T*,Hash,KeyEqual > >
 class LinkedMap
 {
   public:
     using Ptr = std::unique_ptr<T>;
     using Vec = std::vector<Ptr>;
-    using Map = std::unordered_map<std::string,T*>;
     using iterator = typename Vec::iterator;
     using const_iterator = typename Vec::const_iterator;
+    using reverse_iterator = typename Vec::reverse_iterator;
+    using const_reverse_iterator = typename Vec::const_reverse_iterator;
 
     //! Find an object given the key.
     //! Returns a pointer to the element if found or nullptr if it is not found.
-    const T *find(const char *k) const
+    const T *find(const char *key_) const
     {
-      std::string key = k ? std::string(k) : std::string();
+      std::string key(key_ ? key_ : "");
       auto it = m_lookup.find(key);
       return it!=m_lookup.end() ? it->second : nullptr;
     }
@@ -51,7 +55,7 @@ class LinkedMap
       return const_cast<T*>(static_cast<const LinkedMap&>(*this).find(key));
     }
 
-    //! Adds a new object to the ordered set if it was not added already.
+    //! Adds a new object to the ordered vector if it was not added already.
     //! Return a non-owning pointer to the newly added object, or to the existing object if
     //! it was already inserted before under the given key.
     template<class...Args>
@@ -60,8 +64,8 @@ class LinkedMap
       T *result = find(k);
       if (result==nullptr)
       {
-        std::string key = k ? std::string(k) : std::string();
-        Ptr ptr = std::make_unique<T>(k,std::forward<Args>(args)...);
+        std::string key(k ? k : "");
+        Ptr ptr = std::make_unique<T>(key.c_str(),std::forward<Args>(args)...);
         result = ptr.get();
         m_lookup.insert({key,result});
         m_entries.push_back(std::move(ptr));
@@ -69,11 +73,29 @@ class LinkedMap
       return result;
     }
 
-    //! Removes an object from the container and deletes it.
-    //! Returns true if the object was delete or false it is was not found.
-    bool del(const char *k)
+    //! Prepends a new object to the ordered vector if it was not added already.
+    //! Return a non-owning pointer to the newly added object, or to the existing object if
+    //! it was already inserted before under the given key.
+    template<class...Args>
+    T *prepend(const char *k, Args&&... args)
     {
-      std::string key = k ? std::string(k) : std::string();
+      T *result = find(k);
+      if (result==nullptr)
+      {
+        std::string key(k ? k : "");
+        Ptr ptr = std::make_unique<T>(key.c_str(),std::forward<Args>(args)...);
+        result = ptr.get();
+        m_lookup.insert({key,result});
+        m_entries.push_front(std::move(ptr));
+      }
+      return result;
+    }
+
+    //! Removes an object from the container and deletes it.
+    //! Returns true if the object was deleted or false it is was not found.
+    bool del(const char *key_)
+    {
+      std::string key(key_ ? key_ : "");
       auto it = m_lookup.find(key);
       if (it!=m_lookup.end())
       {
@@ -88,12 +110,16 @@ class LinkedMap
       return false;
     }
 
-    iterator begin()             { return m_entries.begin();  }
-    iterator end()               { return m_entries.end();    }
-    const_iterator begin() const { return m_entries.cbegin(); }
-    const_iterator end() const   { return m_entries.cend();   }
-    bool empty() const           { return m_entries.empty();  }
-    size_t size() const          { return m_entries.size();   }
+    iterator begin()                       { return m_entries.begin();  }
+    iterator end()                         { return m_entries.end();    }
+    const_iterator begin() const           { return m_entries.cbegin(); }
+    const_iterator end() const             { return m_entries.cend();   }
+    reverse_iterator rbegin()              { return m_entries.rbegin();  }
+    reverse_iterator rend()                { return m_entries.rend();    }
+    const_reverse_iterator rbegin() const  { return m_entries.crbegin(); }
+    const_reverse_iterator rend() const    { return m_entries.crend();   }
+    bool empty() const                     { return m_entries.empty();  }
+    size_t size() const                    { return m_entries.size();   }
 
     void clear()
     {
@@ -102,30 +128,33 @@ class LinkedMap
     }
 
   private:
+
     Map m_lookup;
     Vec m_entries;
 };
 
-#if 0 // not yet used
-//! @brief Container class representing a vector of objects with unique keys.
+//! @brief Container class representing a vector of objects with keys.
 //! @details Objects can be efficiently be looked up given the key.
 //! Objects are \e not owned by the container, the container will only hold references.
 //! When adding objects the order of addition is kept, and used while iterating.
-template<class T>
+template<class T, class Hash = std::hash<std::string>,
+                  class KeyEqual = std::equal_to<std::string>,
+                  class Map = std::unordered_map<std::string,T*,Hash,KeyEqual > >
 class LinkedRefMap
 {
   public:
     using Ptr = T*;
     using Vec = std::vector<Ptr>;
-    using Map = std::unordered_map<std::string,T*>;
     using iterator = typename Vec::iterator;
     using const_iterator = typename Vec::const_iterator;
+    using reverse_iterator = typename Vec::reverse_iterator;
+    using const_reverse_iterator = typename Vec::const_reverse_iterator;
 
     //! find an object given the key.
     //! Returns a pointer to the object if found or nullptr if it is not found.
-    const T *find(const char *k) const
+    const T *find(const char *key_) const
     {
-      std::string key = k ? std::string(k) : std::string();
+      std::string key(key_ ? key_ : "");
       auto it = m_lookup.find(key);
       return it!=m_lookup.end() ? it->second : nullptr;
     }
@@ -136,14 +165,14 @@ class LinkedRefMap
       return const_cast<T*>(static_cast<const LinkedRefMap&>(*this).find(key));
     }
 
-    //! Adds a new object to the ordered set if it was not added already.
-    //! Return true if the object was added, and false if an object with the same key
+    //! Adds an object reference to the ordered vector if it was not added already.
+    //! Return true if the reference was added, and false if an object with the same key
     //! was already added before
     bool add(const char *k, T* obj)
     {
       if (find(k)==nullptr) // new element
       {
-        std::string key = k ? std::string(k) : std::string();
+        std::string key(k ? k : "");
         m_lookup.insert({key,obj});
         m_entries.push_back(obj);
         return true;
@@ -154,12 +183,53 @@ class LinkedRefMap
       }
     }
 
-    iterator begin()               { return m_entries.begin();  }
-    iterator end()                 { return m_entries.end();    }
-    const_iterator begin() const   { return m_entries.cbegin(); }
-    const_iterator end() const     { return m_entries.cend();   }
-    bool empty() const             { return m_entries.empty();  }
-    size_t size() const            { return m_entries.size();   }
+    //! Prepends an object reference to the ordered vector if it was not added already.
+    //! Return true if the reference was added, and false if an object with the same key
+    //! was already added before
+    bool prepend(const char *k, T* obj)
+    {
+      if (find(k)==nullptr) // new element
+      {
+        std::string key(k ? k : "");
+        m_lookup.insert({key,obj});
+        m_entries.insert(m_entries.begin(),obj);
+        return true;
+      }
+      else // already existing, don't add
+      {
+        return false;
+      }
+    }
+
+    //! Removes an object from the container and deletes it.
+    //! Returns true if the object was deleted or false it is was not found.
+    bool del(const char *key_)
+    {
+      std::string key(key_ ? key_ : "");
+      auto it = m_lookup.find(key);
+      if (it!=m_lookup.end())
+      {
+        auto vecit = std::find_if(m_entries.begin(),m_entries.end(),[obj=it->second](auto &el) { return el.get()==obj; });
+        if (vecit!=m_entries.end()) // should always be true
+        {
+          m_entries.erase(vecit);
+          m_lookup.erase(it);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    iterator begin()                       { return m_entries.begin();  }
+    iterator end()                         { return m_entries.end();    }
+    const_iterator begin() const           { return m_entries.cbegin(); }
+    const_iterator end() const             { return m_entries.cend();   }
+    reverse_iterator rbegin()              { return m_entries.rbegin();  }
+    reverse_iterator rend()                { return m_entries.rend();    }
+    const_reverse_iterator rbegin() const  { return m_entries.crbegin(); }
+    const_reverse_iterator rend() const    { return m_entries.crend();   }
+    bool empty() const                     { return m_entries.empty();  }
+    size_t size() const                    { return m_entries.size();   }
 
     void clear()
     {
@@ -171,7 +241,6 @@ class LinkedRefMap
     Map m_lookup;
     Vec m_entries;
 };
-#endif
 
 
 #endif

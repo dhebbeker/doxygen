@@ -35,9 +35,9 @@ class TranslatorDutch : public Translator
      *  </pre>
      */
     QCString latexLanguageSupportCommand()
-    {
-      return "\\usepackage[dutch]{babel}\n";
-    }
+    { return "\\usepackage[dutch]{babel}\n"; }
+    QCString trISOLang()
+    { return "nl"; }
     QCString trRelatedFunctions()
     { return "Gerelateerde functies"; }
     QCString trRelatedSubscript()
@@ -111,8 +111,22 @@ class TranslatorDutch : public Translator
       return result;
     }
     QCString trCompoundListDescription()
-    { return "Hieronder volgen de klassen, structs en "
-             "unions met voor elk een korte beschrijving:";
+    {
+      if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
+      {
+        return "Hieronder volgen de structs "
+               "met voor elk een korte beschrijving:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Hieronder volgen de klassen "
+               "met voor elk een korte beschrijving:";
+      }
+      else
+      {
+        return "Hieronder volgen de klassen, structs en "
+               "unions met voor elk een korte beschrijving:";
+      }
     }
     QCString trCompoundMembersDescription(bool extractAll)
     {
@@ -1530,14 +1544,6 @@ class TranslatorDutch : public Translator
       return "Methode Documentatie";
     }
 
-    /*! Used as the title of the design overview picture created for the
-     *  VHDL output.
-     */
-    virtual QCString trDesignOverview()
-    {
-      return "Ontwerp Overzicht";
-    }
-
 //////////////////////////////////////////////////////////////////////////
 // new since 1.8.4
 //////////////////////////////////////////////////////////////////////////
@@ -1784,7 +1790,12 @@ class TranslatorDutch : public Translator
     { return "Data members"; }
     virtual QCString trDataMemberDocumentation()
     { return "Documentatie van data members"; }
-    //////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////
+// new since 1.8.19
+//////////////////////////////////////////////////////////////////////////
+    virtual QCString trDesignUnitDocumentation()
+    { return "Ontwerp Eenheid Documentatie"; }
 };
 
 #endif

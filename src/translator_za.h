@@ -57,9 +57,11 @@ class TranslatorAfrikaans : public TranslatorAdapter_1_6_0
      */
     virtual QCString latexLanguageSupportCommand()
     {
-      //should we use return "\\usepackage[afrikaans]{babel}\n";
-      // not sure - for now return an empty string
-      return "";
+      return "\\usepackage[afrikaans]{babel}\n";
+    }
+    virtual QCString trISOLang()
+    {
+      return "af";
     }
 
     // --- Language translation methods -------------------
@@ -232,6 +234,10 @@ class TranslatorAfrikaans : public TranslatorAdapter_1_6_0
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return " Data strukture met kort beskrywings:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Klasse met kort beskrywings:";
       }
       else
       {

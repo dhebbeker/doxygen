@@ -68,6 +68,11 @@ class TranslatorSpanish : public TranslatorAdapter_1_8_15
       return "\\usepackage[spanish]{babel}";
     }
 
+    virtual QCString trISOLang()
+    {
+      return "es";
+    }
+
     // --- Language translation methods -------------------
 
     /*! used in the compound documentation before a list of related functions. */
@@ -237,6 +242,10 @@ class TranslatorSpanish : public TranslatorAdapter_1_8_15
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Lista de estructuras con una breve descripción:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Lista de las clases con una breve descripción:";
       }
       else
       {
@@ -1992,14 +2001,6 @@ class TranslatorSpanish : public TranslatorAdapter_1_8_15
       return "Método de documentación";
     }
 
-    /*! Used as the title of the design overview picture created for the
-     *  VHDL output.
-     */
-    virtual QCString trDesignOverview()
-    {
-      return "Diseño información general";
-    }
-
 //////////////////////////////////////////////////////////////////////////
 // new since 1.8.4
 //////////////////////////////////////////////////////////////////////////
@@ -2303,8 +2304,6 @@ class TranslatorSpanish : public TranslatorAdapter_1_8_15
     {
         return "Documentación miembro de datos";
     }
-
-//////////////////////////////////////////////////////////////////////////
 
 };
 

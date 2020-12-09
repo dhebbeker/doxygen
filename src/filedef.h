@@ -1,12 +1,12 @@
 /******************************************************************************
  *
- * 
+ *
  *
  * Copyright (C) 1997-2015 by Dimitri van Heesch.
  *
  * Permission to use, copy, modify, and distribute this software and its
- * documentation under the terms of the GNU General Public License is hereby 
- * granted. No representations are made about the suitability of this software 
+ * documentation under the terms of the GNU General Public License is hereby
+ * granted. No representations are made about the suitability of this software
  * for any purpose. It is provided "as is" without express or implied warranty.
  * See the GNU General Public License for more details.
  *
@@ -18,6 +18,8 @@
 #ifndef FILEDEF_H
 #define FILEDEF_H
 
+#include <set>
+
 #include "index.h"
 #include <qlist.h>
 #include <qintdict.h>
@@ -25,6 +27,8 @@
 #include "definition.h"
 #include "sortdict.h"
 #include "memberlist.h"
+#include "containers.h"
+#include "classlist.h"
 
 class MemberList;
 class FileDef;
@@ -40,28 +44,32 @@ class MemberGroupSDict;
 class PackageDef;
 class DirDef;
 class FTextStream;
+class ClangTUParser;
+
+// --- Set of files
+
+using FileDefSet = std::set<const FileDef*>;
 
 /** Class representing the data associated with a \#include statement. */
 struct IncludeInfo
 {
-  IncludeInfo() : fileDef(0), local(FALSE), imported(FALSE), indirect(FALSE) {}
+  IncludeInfo() : fileDef(0), local(FALSE), imported(FALSE) {}
   ~IncludeInfo() {}
   FileDef *fileDef;
   QCString includeName;
   bool local;
   bool imported;
-  bool indirect;
 };
 
-/** A model of a file symbol. 
- *   
+/** A model of a file symbol.
+ *
  *  An object of this class contains all file information that is gathered.
  *  This includes the members and compounds defined in the file.
- *   
+ *
  *  The member writeDocumentation() can be used to generate the page of
  *  documentation to HTML and LaTeX.
  */
-class FileDef : virtual public Definition
+class FileDef : public DefinitionMutable, public Definition
 {
   public:
    ~FileDef() {}
@@ -115,11 +123,11 @@ class FileDef : virtual public Definition
 
     virtual PackageDef *packageDef() const = 0;
     virtual DirDef *getDirDef() const = 0;
-    virtual NamespaceSDict *getUsedNamespaces() const = 0;
-    virtual SDict<Definition> *getUsedClasses() const = 0;
+    virtual LinkedRefMap<const NamespaceDef> getUsedNamespaces() const = 0;
+    virtual LinkedRefMap<const ClassDef> getUsedClasses() const = 0;
     virtual QList<IncludeInfo> *includeFileList() const = 0;
     virtual QList<IncludeInfo> *includedByFileList() const = 0;
-    virtual void getAllIncludeFilesRecursively(QStrList &incFiles) const = 0;
+    virtual void getAllIncludeFilesRecursively(StringVector &incFiles) const = 0;
 
     virtual MemberList *getMemberList(MemberListType lt) const = 0;
     virtual const QList<MemberList> &getMemberLists() const = 0;
@@ -149,10 +157,10 @@ class FileDef : virtual public Definition
     virtual void writeSummaryLinks(OutputList &ol) const = 0;
     virtual void writeTagFile(FTextStream &t) = 0;
 
-    virtual void startParsing() = 0;
-    virtual void writeSource(OutputList &ol,bool sameTu,QStrList &filesInSameTu) = 0;
-    virtual void parseSource(bool sameTu,QStrList &filesInSameTu) = 0;
-    virtual void finishParsing() = 0;
+    virtual void writeSourceHeader(OutputList &ol) = 0;
+    virtual void writeSourceBody(OutputList &ol,ClangTUParser *clangParser) = 0;
+    virtual void writeSourceFooter(OutputList &ol) = 0;
+    virtual void parseSource(ClangTUParser *clangParser) = 0;
     virtual void setDiskName(const QCString &name) = 0;
 
     virtual void insertMember(MemberDef *md) = 0;
@@ -164,27 +172,32 @@ class FileDef : virtual public Definition
     virtual void setDirDef(DirDef *dd) = 0;
 
     virtual void addUsingDirective(const NamespaceDef *nd) = 0;
-    virtual void addUsingDeclaration(Definition *def) = 0;
+    virtual void addUsingDeclaration(const ClassDef *cd) = 0;
     virtual void combineUsingRelations() = 0;
 
     virtual bool generateSourceFile() const = 0;
     virtual void sortMemberLists() = 0;
 
-    virtual void addIncludeDependency(FileDef *fd,const char *incName,bool local,bool imported,bool indirect) = 0;
+    virtual void addIncludeDependency(FileDef *fd,const char *incName,bool local,bool imported) = 0;
     virtual void addIncludedByDependency(FileDef *fd,const char *incName,bool local,bool imported) = 0;
 
     virtual void addMembersToMemberGroup() = 0;
     virtual void distributeMemberGroupDocumentation() = 0;
     virtual void findSectionsInDocumentation() = 0;
-    virtual void addIncludedUsingDirectives() = 0;
+    virtual void addIncludedUsingDirectives(FileDefSet &visitedFiles) = 0;
 
     virtual void addListReferences() = 0;
-
-    virtual void setVisited(bool v) = 0;
-    virtual bool isVisited() const = 0;
 };
 
 FileDef *createFileDef(const char *p,const char *n,const char *ref=0,const char *dn=0);
+
+
+// --- Cast functions
+
+FileDef            *toFileDef(Definition *d);
+const FileDef      *toFileDef(const Definition *d);
+
+// ------------------
 
 /** Class representing a list of FileDef objects. */
 class FileList : public QList<FileDef>
@@ -228,11 +241,11 @@ class DirEntry
 {
   public:
     enum EntryKind { Dir, File };
-    DirEntry(DirEntry *parent,FileDef *fd)  
-       : m_parent(parent), m_name(fd->name()), m_kind(File), m_fd(fd), 
+    DirEntry(DirEntry *parent,FileDef *fd)
+       : m_parent(parent), m_name(fd->name()), m_kind(File), m_fd(fd),
          m_isLast(FALSE) { }
-    DirEntry(DirEntry *parent,QCString name)              
-       : m_parent(parent), m_name(name), m_kind(Dir), 
+    DirEntry(DirEntry *parent,QCString name)
+       : m_parent(parent), m_name(name), m_kind(Dir),
          m_fd(0), m_isLast(FALSE) { }
     virtual ~DirEntry() { }
     EntryKind kind() const { return m_kind; }
@@ -257,7 +270,7 @@ class DirEntry
 class Directory : public DirEntry
 {
   public:
-    Directory(Directory *parent,const QCString &name) 
+    Directory(Directory *parent,const QCString &name)
        : DirEntry(parent,name)
     { m_children.setAutoDelete(TRUE); }
     virtual ~Directory()              {}

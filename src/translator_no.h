@@ -75,6 +75,11 @@ class TranslatorNorwegian : public TranslatorAdapter_1_4_6
         "\\usepackage[norsk]{babel}\n";
     }
 
+    virtual QCString trISOLang()
+    {
+      return "nn";
+    }
+
     // --- Language translation methods -------------------
 
     /*! used in the compound documentation before a list of related functions. */
@@ -249,6 +254,10 @@ class TranslatorNorwegian : public TranslatorAdapter_1_4_6
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
 	return "Her er datastrukturene med korte beskrivelser:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+	return "Her er klasser med korte beskrivelser:";
       }
       else
       {
@@ -1563,6 +1572,7 @@ class TranslatorNorwegian : public TranslatorAdapter_1_4_6
               "generert for deg. Den skiller seg ut fra "
               "funksjonen ovenfor i argument(ene) den aksepterer.";
     }
+
 };
 
 #endif

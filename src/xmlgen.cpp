@@ -154,7 +154,9 @@ static void writeXMLHeader(FTextStream &t)
   t << "<?xml version='1.0' encoding='UTF-8' standalone='no'?>" << endl;;
   t << "<doxygen xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ";
   t << "xsi:noNamespaceSchemaLocation=\"compound.xsd\" ";
-  t << "version=\"" << getDoxygenVersion() << "\">" << endl;
+  t << "version=\"" << getDoxygenVersion() << "\" ";
+  t << "xml:lang=\"" << theTranslator->trISOLang() << "\"";
+  t << ">" << endl;
 }
 
 static void writeCombineScript()
@@ -178,7 +180,7 @@ static void writeCombineScript()
   "<xsl:stylesheet xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" version=\"1.0\">\n"
   "  <xsl:output method=\"xml\" version=\"1.0\" indent=\"no\" standalone=\"yes\" />\n"
   "  <xsl:template match=\"/\">\n"
-  "    <doxygen version=\"{doxygenindex/@version}\">\n"
+  "    <doxygen version=\"{doxygenindex/@version}\" xml:lang=\"{doxygenindex/@xml:lang}\">\n"
   "      <!-- Load all doxygen generated xml files -->\n"
   "      <xsl:for-each select=\"doxygenindex/compound\">\n"
   "        <xsl:copy-of select=\"document( concat( @refid, '.xml' ) )/doxygen/*\" />\n"
@@ -224,6 +226,7 @@ class TextGeneratorXMLImpl : public TextGeneratorIntf
     FTextStream &m_t;
 };
 
+//-------------------------------------------------------------------------------------------
 
 /** Generator for producing XML formatted source code. */
 void XMLCodeGenerator::codify(const char *text)
@@ -338,6 +341,18 @@ void XMLCodeGenerator::finish()
   if (m_insideCodeLine) endCodeLine();
 }
 
+void XMLCodeGenerator::startCodeFragment(const char *)
+{
+  m_t << "    <programlisting>" << endl;
+}
+
+void XMLCodeGenerator::endCodeFragment(const char *)
+{
+  m_t << "    </programlisting>" << endl;
+}
+
+//-------------------------------------------------------------------------------------------
+
 static void writeTemplateArgumentList(FTextStream &t,
                                       const ArgumentList &al,
                                       const Definition *scope,
@@ -401,7 +416,8 @@ static void writeXMLDocBlock(FTextStream &t,
   QCString stext = text.stripWhiteSpace();
   if (stext.isEmpty()) return;
   // convert the documentation string into an abstract syntax tree
-  DocNode *root = validatingParseDoc(fileName,lineNr,scope,md,text,FALSE,FALSE);
+  DocNode *root = validatingParseDoc(fileName,lineNr,scope,md,text,FALSE,FALSE,
+                                     0,FALSE,FALSE,Config_getBool(MARKDOWN_SUPPORT));
   // create a code generator
   XMLCodeGenerator *xmlCodeGen = new XMLCodeGenerator(t);
   // create a parse tree visitor for XML
@@ -417,11 +433,12 @@ static void writeXMLDocBlock(FTextStream &t,
 
 void writeXMLCodeBlock(FTextStream &t,FileDef *fd)
 {
-  CodeParserInterface &intf=Doxygen::parserManager->getCodeParser(fd->getDefFileExtension());
+  auto intf=Doxygen::parserManager->getCodeParser(fd->getDefFileExtension());
   SrcLangExt langExt = getLanguageFromFileName(fd->getDefFileExtension());
-  intf.resetCodeParserState();
+  intf->resetCodeParserState();
   XMLCodeGenerator *xmlGen = new XMLCodeGenerator(t);
-  intf.parseCode(*xmlGen,    // codeOutIntf
+  xmlGen->startCodeFragment("DoxyCode");
+  intf->parseCode(*xmlGen,    // codeOutIntf
                 0,           // scopeName
                 fileToString(fd->absFilePath(),Config_getBool(FILTER_SOURCE_FILES)),
                 langExt,     // lang
@@ -434,6 +451,7 @@ void writeXMLCodeBlock(FTextStream &t,FileDef *fd)
                 0,           // memberDef
                 TRUE         // showLineNumbers
                 );
+  xmlGen->endCodeFragment("DoxyCode");
   xmlGen->finish();
   delete xmlGen;
 }
@@ -1003,23 +1021,15 @@ static void generateXMLForMember(const MemberDef *md,FTextStream &ti,FTextStream
   }
 
   //printf("md->getReferencesMembers()=%p\n",md->getReferencesMembers());
-  MemberSDict *mdict = md->getReferencesMembers();
-  if (mdict)
+  auto refList = md->getReferencesMembers();
+  for (const auto &refmd : refList)
   {
-    MemberSDict::Iterator mdi(*mdict);
-    for (mdi.toFirst();(rmd=mdi.current());++mdi)
-    {
-      writeMemberReference(t,def,rmd,"references");
-    }
+    writeMemberReference(t,def,refmd,"references");
   }
-  mdict = md->getReferencedByMembers();
-  if (mdict)
+  auto refByList = md->getReferencedByMembers();
+  for (const auto &refmd : refByList)
   {
-    MemberSDict::Iterator mdi(*mdict);
-    for (mdi.toFirst();(rmd=mdi.current());++mdi)
-    {
-      writeMemberReference(t,def,rmd,"referencedby");
-    }
+    writeMemberReference(t,def,refmd,"referencedby");
   }
 
   t << "      </memberdef>" << endl;
@@ -1150,7 +1160,8 @@ static void writeInnerNamespaces(const NamespaceSDict *nl,FTextStream &t)
       if (!nd->isHidden() && !nd->isAnonymous())
       {
         t << "    <innernamespace refid=\"" << nd->getOutputFileBase()
-          << "\">" << convertToXML(nd->name()) << "</innernamespace>" << endl;
+          << "\"" << (nd->isInline() ? " inline=\"yes\"" : "")
+          << ">" << convertToXML(nd->name()) << "</innernamespace>" << endl;
       }
     }
   }
@@ -1275,73 +1286,63 @@ static void generateXMLForClass(const ClassDef *cd,FTextStream &ti)
   t << "    <compoundname>";
   writeXMLString(t,cd->name());
   t << "</compoundname>" << endl;
-  if (cd->baseClasses())
+  for (const auto &bcd : cd->baseClasses())
   {
-    BaseClassListIterator bcli(*cd->baseClasses());
-    BaseClassDef *bcd;
-    for (bcli.toFirst();(bcd=bcli.current());++bcli)
+    t << "    <basecompoundref ";
+    if (bcd.classDef->isLinkable())
     {
-      t << "    <basecompoundref ";
-      if (bcd->classDef->isLinkable())
-      {
-        t << "refid=\"" << classOutputFileBase(bcd->classDef) << "\" ";
-      }
-      t << "prot=\"";
-      switch (bcd->prot)
-      {
-        case Public:    t << "public";    break;
-        case Protected: t << "protected"; break;
-        case Private:   t << "private";   break;
-        case Package: ASSERT(0); break;
-      }
-      t << "\" virt=\"";
-      switch(bcd->virt)
-      {
-        case Normal:  t << "non-virtual";  break;
-        case Virtual: t << "virtual";      break;
-        case Pure:    t <<"pure-virtual"; break;
-      }
-      t << "\">";
-      if (!bcd->templSpecifiers.isEmpty())
-      {
-        t << convertToXML(
-              insertTemplateSpecifierInScope(
-              bcd->classDef->name(),bcd->templSpecifiers)
-           );
-      }
-      else
-      {
-        t << convertToXML(bcd->classDef->displayName());
-      }
-      t  << "</basecompoundref>" << endl;
+      t << "refid=\"" << classOutputFileBase(bcd.classDef) << "\" ";
     }
+    t << "prot=\"";
+    switch (bcd.prot)
+    {
+      case Public:    t << "public";    break;
+      case Protected: t << "protected"; break;
+      case Private:   t << "private";   break;
+      case Package: ASSERT(0); break;
+    }
+    t << "\" virt=\"";
+    switch(bcd.virt)
+    {
+      case Normal:  t << "non-virtual";  break;
+      case Virtual: t << "virtual";      break;
+      case Pure:    t <<"pure-virtual"; break;
+    }
+    t << "\">";
+    if (!bcd.templSpecifiers.isEmpty())
+    {
+      t << convertToXML(
+          insertTemplateSpecifierInScope(
+            bcd.classDef->name(),bcd.templSpecifiers)
+          );
+    }
+    else
+    {
+      t << convertToXML(bcd.classDef->displayName());
+    }
+    t  << "</basecompoundref>" << endl;
   }
-  if (cd->subClasses())
+  for (const auto &bcd : cd->subClasses())
   {
-    BaseClassListIterator bcli(*cd->subClasses());
-    BaseClassDef *bcd;
-    for (bcli.toFirst();(bcd=bcli.current());++bcli)
+    t << "    <derivedcompoundref refid=\""
+      << classOutputFileBase(bcd.classDef)
+      << "\" prot=\"";
+    switch (bcd.prot)
     {
-      t << "    <derivedcompoundref refid=\""
-        << classOutputFileBase(bcd->classDef)
-        << "\" prot=\"";
-      switch (bcd->prot)
-      {
-        case Public:    t << "public";    break;
-        case Protected: t << "protected"; break;
-        case Private:   t << "private";   break;
-        case Package: ASSERT(0); break;
-      }
-      t << "\" virt=\"";
-      switch(bcd->virt)
-      {
-        case Normal:  t << "non-virtual";  break;
-        case Virtual: t << "virtual";      break;
-        case Pure:    t << "pure-virtual"; break;
-      }
-      t << "\">" << convertToXML(bcd->classDef->displayName())
-        << "</derivedcompoundref>" << endl;
+      case Public:    t << "public";    break;
+      case Protected: t << "protected"; break;
+      case Private:   t << "private";   break;
+      case Package: ASSERT(0); break;
     }
+    t << "\" virt=\"";
+    switch (bcd.virt)
+    {
+      case Normal:  t << "non-virtual";  break;
+      case Virtual: t << "virtual";      break;
+      case Pure:    t << "pure-virtual"; break;
+    }
+    t << "\">" << convertToXML(bcd.classDef->displayName())
+      << "</derivedcompoundref>" << endl;
   }
 
   IncludeInfo *ii=cd->includeInfo();
@@ -1458,7 +1459,9 @@ static void generateXMLForNamespace(const NamespaceDef *nd,FTextStream &ti)
 
   writeXMLHeader(t);
   t << "  <compounddef id=\"" << nd->getOutputFileBase()
-    << "\" kind=\"namespace\" language=\""
+    << "\" kind=\"namespace\" "
+    << (nd->isInline()?"inline=\"yes\" ":"")
+    << "language=\""
     << langToString(nd->getLanguage()) << "\">" << endl;
   t << "    <compoundname>";
   writeXMLString(t,nd->name());
@@ -1633,9 +1636,7 @@ static void generateXMLForFile(FileDef *fd,FTextStream &ti)
   t << "    </detaileddescription>" << endl;
   if (Config_getBool(XML_PROGRAMLISTING))
   {
-    t << "    <programlisting>" << endl;
     writeXMLCodeBlock(t,fd);
-    t << "    </programlisting>" << endl;
   }
   t << "    <location file=\"" << convertToXML(stripFromPath(fd->getDefFileName())) << "\"/>" << endl;
   t << "  </compounddef>" << endl;
@@ -1907,6 +1908,7 @@ void generateXML()
   QDir xmlDir(outputDirectory);
   createSubDirs(xmlDir);
 
+  ResourceMgr::instance().copyResource("xml.xsd",outputDirectory);
   ResourceMgr::instance().copyResource("index.xsd",outputDirectory);
 
   QCString fileName=outputDirectory+"/compound.xsd";
@@ -1959,7 +1961,9 @@ void generateXML()
   t << "<?xml version='1.0' encoding='UTF-8' standalone='no'?>" << endl;;
   t << "<doxygenindex xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ";
   t << "xsi:noNamespaceSchemaLocation=\"index.xsd\" ";
-  t << "version=\"" << getDoxygenVersion() << "\">" << endl;
+  t << "version=\"" << getDoxygenVersion() << "\" ";
+  t << "xml:lang=\"" << theTranslator->trISOLang() << "\"";
+  t << ">" << endl;
 
   {
     ClassSDict::Iterator cli(*Doxygen::classSDict);

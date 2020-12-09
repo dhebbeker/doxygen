@@ -31,6 +31,10 @@ class TranslatorUkrainian : public TranslatorAdapter_1_8_4
     {
       return "\\usepackage[T2A]{fontenc}\n\\usepackage[ukrainian]{babel}\n";
     }
+    virtual QCString trISOLang()
+    {
+      return "uk";
+    }
 
     // --- Language translation methods -------------------
 
@@ -203,6 +207,10 @@ class TranslatorUkrainian : public TranslatorAdapter_1_8_4
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return  "Структури даних з коротким описом." ;
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return  "Класи з коротким описом." ;
       }
       else
       {
@@ -1908,8 +1916,6 @@ class TranslatorUkrainian : public TranslatorAdapter_1_8_4
     {
       return "Огляд дизайну проекту";
     }
-
-//////////////////////////////////////////////////////////////////////////
 
 };
 

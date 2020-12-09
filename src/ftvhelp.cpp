@@ -167,7 +167,7 @@ void FTVHelp::finalize()
  */
 void FTVHelp::incContentsDepth()
 {
-  //printf("incContentsDepth() indent=%d\n",m_indent);
+  //printf("%p: incContentsDepth() indent=%d\n",this,m_indent);
   m_indent++;
   ASSERT(m_indent<MAX_INDENT);
 }
@@ -178,7 +178,7 @@ void FTVHelp::incContentsDepth()
  */
 void FTVHelp::decContentsDepth()
 {
-  //printf("decContentsDepth() indent=%d\n",m_indent);
+  //printf("%p: decContentsDepth() indent=%d\n",this,m_indent);
   ASSERT(m_indent>0);
   if (m_indent>0)
   {
@@ -249,7 +249,7 @@ static QCString node2URL(const FTVNode *n,bool overruleFile=FALSE,bool srcLink=F
   {
     if (overruleFile && n->def && n->def->definitionType()==Definition::TypeFile)
     {
-      const FileDef *fd = dynamic_cast<const FileDef*>(n->def);
+      const FileDef *fd = toFileDef(n->def);
       if (srcLink)
       {
         url = fd->getSourceFileBase();
@@ -348,7 +348,8 @@ static void generateBriefDoc(FTextStream &t,const Definition *def)
   if (!brief.isEmpty())
   {
     DocNode *root = validatingParseDoc(def->briefFile(),def->briefLine(),
-        def,0,brief,FALSE,FALSE,0,TRUE,TRUE);
+        def,0,brief,FALSE,FALSE,
+        0,TRUE,TRUE,Config_getBool(MARKDOWN_SUPPORT));
     QCString relPath = relativePathToRoot(def->getOutputFileBase());
     HtmlCodeGenerator htmlGen(t,relPath);
     HtmlDocVisitor *visitor = new HtmlDocVisitor(t,htmlGen,def);
@@ -418,7 +419,7 @@ void FTVHelp::generateTree(FTextStream &t, const QList<FTVNode> &nl,int level,in
       }
       else if (n->def && n->def->definitionType()==Definition::TypeClass)
       {
-        char icon=compoundIcon(dynamic_cast<const ClassDef*>(n->def));
+        char icon=compoundIcon(toClassDef(n->def));
         t << "<span class=\"icona\"><span class=\"icon\">" << icon << "</span></span>";
       }
       else
@@ -443,9 +444,9 @@ void FTVHelp::generateTree(FTextStream &t, const QList<FTVNode> &nl,int level,in
     {
       const FileDef *srcRef=0;
       if (n->def && n->def->definitionType()==Definition::TypeFile &&
-          (dynamic_cast<const FileDef*>(n->def))->generateSourceFile())
+          (toFileDef(n->def))->generateSourceFile())
       {
-        srcRef = dynamic_cast<const FileDef*>(n->def);
+        srcRef = toFileDef(n->def);
       }
       if (srcRef)
       {
@@ -474,7 +475,7 @@ void FTVHelp::generateTree(FTextStream &t, const QList<FTVNode> &nl,int level,in
       }
       else if (n->def && n->def->definitionType()==Definition::TypeClass)
       {
-        char icon=compoundIcon(dynamic_cast<const ClassDef*>(n->def));
+        char icon=compoundIcon(toClassDef(n->def));
         t << "<span class=\"icona\"><span class=\"icon\">" << icon << "</span></span>";
       }
       else if (n->def && n->def->definitionType()==Definition::TypeDir)
@@ -590,7 +591,7 @@ static bool generateJSTree(NavIndexEntryList &navIndex,FTextStream &t,
     {
       if (n->def && n->def->definitionType()==Definition::TypeFile)
       {
-        const FileDef *fd = dynamic_cast<const FileDef*>(n->def);
+        const FileDef *fd = toFileDef(n->def);
         bool doc,src;
         doc = fileVisibleInIndex(fd,src);
         if (doc)
@@ -669,7 +670,7 @@ static void generateJSNavTree(const QList<FTVNode> &nodeList)
     t << "var NAVTREE =" << endl;
     t << "[" << endl;
     t << "  [ ";
-    QCString &projName = Config_getString(PROJECT_NAME);
+    QCString projName = Config_getString(PROJECT_NAME);
     if (projName.isEmpty())
     {
       if (mainPageHasTitle()) // Use title of main page as root

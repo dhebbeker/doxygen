@@ -72,11 +72,15 @@ class TranslatorSerbianCyrillic : public TranslatorAdapter_1_6_0
     virtual QCString latexLanguageSupportCommand()
     {
       return "\\usepackage[T2A]{fontenc}\n"
-             "\\usepackage[russian]{babel}\n";
+             "\\usepackage[serbianc]{babel}\n";
     }
     virtual QCString latexFontenc()
     {
       return "";
+    }
+    virtual QCString trISOLang()
+    {
+      return "sr-Cyrl";
     }
 
     // --- Language translation methods -------------------
@@ -249,6 +253,10 @@ class TranslatorSerbianCyrillic : public TranslatorAdapter_1_6_0
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Овде су структуре са кратким описима:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Овде су класе са кратким описима:";
       }
       else
       {

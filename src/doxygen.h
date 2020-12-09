@@ -17,7 +17,6 @@
 #define DOXYGEN_H
 
 #include <qdatetime.h>
-#include <qcache.h>
 #include <qstrlist.h>
 #include <qdict.h>
 #include <qintdict.h>
@@ -28,6 +27,13 @@
 #include "membergroup.h"
 #include "dirdef.h"
 #include "memberlist.h"
+#include "define.h"
+#include "cache.h"
+#include "symbolmap.h"
+
+#define THREAD_LOCAL thread_local
+#define AtomicInt    std::atomic_int
+#define AtomicBool   std::atomic_bool
 
 class RefList;
 class PageSList;
@@ -49,7 +55,6 @@ class MemberNameLinkedMap;
 class FileNameLinkedMap;
 class NamespaceSDict;
 class NamespaceDef;
-class DefinitionIntf;
 class DirSDict;
 class DirRelation;
 class IndexList;
@@ -58,11 +63,10 @@ class FormulaDict;
 class FormulaNameDict;
 class Preprocessor;
 struct MemberGroupInfo;
+class NamespaceDefMutable;
 
 typedef QList<QCString>    StringList;
 typedef QListIterator<QCString>    StringListIterator;
-//typedef QDict<FileDef>     FileDict;
-//typedef QDict<GroupDef>    GroupDict;
 
 class StringDict : public QDict<QCString>
 {
@@ -73,11 +77,11 @@ class StringDict : public QDict<QCString>
 
 struct LookupInfo
 {
-  LookupInfo() : classDef(0), typeDef(0) {}
+  LookupInfo() = default;
   LookupInfo(const ClassDef *cd,const MemberDef *td,QCString ts,QCString rt)
     : classDef(cd), typeDef(td), templSpec(ts),resolvedType(rt) {}
-  const ClassDef  *classDef;
-  const MemberDef *typeDef;
+  const ClassDef  *classDef = 0;
+  const MemberDef *typeDef = 0;
   QCString   templSpec;
   QCString   resolvedType;
 };
@@ -107,7 +111,6 @@ class Doxygen
     static FileNameLinkedMap        *diaFileNameLinkedMap;
     static MemberNameLinkedMap      *memberNameLinkedMap;
     static MemberNameLinkedMap      *functionNameLinkedMap;
-    static QStrList                  tagfileList;
     static StringUnorderedMap        namespaceAliasMap;
     static GroupSDict               *groupSDict;
     static NamespaceSDict           *namespaceSDict;
@@ -115,16 +118,15 @@ class Doxygen
     static StringDict                aliasDict;
     static QIntDict<MemberGroupInfo> memGrpInfoDict;
     static StringUnorderedSet        expandAsDefinedSet;
-    static NamespaceDef             *globalScope;
+    static NamespaceDefMutable      *globalScope;
     static QCString                  htmlFileExtension;
     static bool                      parseSourcesNeeded;
-    static QTime                     runningTime;
     static SearchIndexIntf          *searchIndex;
-    static QDict<DefinitionIntf>    *symbolMap;
+    static SymbolMap<Definition>     symbolMap;
     static QDict<Definition>        *clangUsrMap;
     static bool                      outputToWizard;
     static QDict<int>               *htmlDirMap;
-    static QCache<LookupInfo>       *lookupCache;
+    static Cache<std::string,LookupInfo> *lookupCache;
     static DirSDict                 *directories;
     static SDict<DirRelation>        dirRelations;
     static ParserManager            *parserManager;
@@ -137,9 +139,9 @@ class Doxygen
     static int                       subpageNestingLevel;
     static QCString                  spaces;
     static bool                      generatingXmlOutput;
-    static bool                      markdownSupport;
     static GenericsSDict            *genericsDict;
-    static Preprocessor             *preprocessor;
+    static DefinesPerFileList        macroDefinitions;
+    static bool                      clangAssistedParsing;
 };
 
 void initDoxygen();
@@ -154,8 +156,8 @@ void cleanUpDoxygen();
 int readFileOrDirectory(const char *s,
                         FileNameLinkedMap *fnDict,
                         StringUnorderedSet *exclSet,
-                        QStrList *patList,
-                        QStrList *exclPatList,
+                        const StringVector *patList,
+                        const StringVector *exclPatList,
                         StringVector *resultList,
                         StringUnorderedSet *resultSet,
                         bool recursive,

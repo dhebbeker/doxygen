@@ -20,12 +20,6 @@
 #include "config.h"
 #include "util.h"
 
-#define HIDE_SCOPE_NAMES      Config_getBool(HIDE_SCOPE_NAMES)
-#define MAX_DOT_GRAPH_DEPTH   Config_getInt(MAX_DOT_GRAPH_DEPTH)
-#define UML_LOOK              Config_getBool(UML_LOOK)
-#define TEMPLATE_RELATIONS    Config_getBool(TEMPLATE_RELATIONS)
-#define DOT_GRAPH_MAX_NODES   Config_getInt(DOT_GRAPH_MAX_NODES)
-
 void DotClassGraph::addClass(const ClassDef *cd,DotNode *n,int prot,
   const char *label,const char *usedName,const char *templSpec,bool base,int distance)
 {
@@ -71,7 +65,7 @@ void DotClassGraph::addClass(const ClassDef *cd,DotNode *n,int prot,
   else // new class
   {
     QCString displayName=className;
-    if (HIDE_SCOPE_NAMES) displayName=stripScope(displayName);
+    if (Config_getBool(HIDE_SCOPE_NAMES)) displayName=stripScope(displayName);
     QCString tmp_url;
     if (cd->isLinkable() && !cd->isHidden())
     {
@@ -162,7 +156,7 @@ bool DotClassGraph::determineVisibleNodes(DotNode *rootNode,
     {
       DotNode *n = childQueue.take(0);
       int distance = n->distance();
-      if (!n->isVisible() && distance<=MAX_DOT_GRAPH_DEPTH) // not yet processed
+      if (!n->isVisible() && distance<=Config_getInt(MAX_DOT_GRAPH_DEPTH)) // not yet processed
       {
         if (distance>0)
         {
@@ -191,7 +185,7 @@ bool DotClassGraph::determineVisibleNodes(DotNode *rootNode,
     if (includeParents && parentQueue.count()>0)
     {
       DotNode *n = parentQueue.take(0);
-      if ((!n->isVisible() || firstNode) && n->distance()<=MAX_DOT_GRAPH_DEPTH) // not yet processed
+      if ((!n->isVisible() || firstNode) && n->distance()<=Config_getInt(MAX_DOT_GRAPH_DEPTH)) // not yet processed
       {
         firstNode=FALSE;
         int distance = n->distance();
@@ -220,7 +214,7 @@ bool DotClassGraph::determineVisibleNodes(DotNode *rootNode,
       }
     }
   }
-  if (UML_LOOK) return FALSE; // UML graph are always top to bottom
+  if (Config_getBool(UML_LOOK)) return FALSE; // UML graph are always top to bottom
   int maxWidth=0;
   int maxHeight=(int)QMAX(childTreeWidth.size(),parentTreeWidth.size());
   uint i;
@@ -239,6 +233,25 @@ bool DotClassGraph::determineVisibleNodes(DotNode *rootNode,
                                       // left to right order.
 }
 
+static QCString joinLabels(const StringSet &ss)
+{
+  QCString label;
+  int count=1;
+  int maxLabels=10;
+  auto it = std::begin(ss), e = std::end(ss);
+  if (it!=e) // set not empty
+  {
+    label += (*it++).c_str();
+    for (; it!=e && count < maxLabels ; ++it,++count)
+    {
+      label += '\n';
+      label += (*it).c_str();
+    }
+    if (count==maxLabels) label+="\n...";
+  }
+  return label;
+}
+
 void DotClassGraph::buildGraph(const ClassDef *cd,DotNode *n,bool base,int distance)
 {
   //printf("DocClassGraph::buildGraph(%s,distance=%d,base=%d)\n",
@@ -247,18 +260,11 @@ void DotClassGraph::buildGraph(const ClassDef *cd,DotNode *n,bool base,int dista
 
   if (m_graphType == Inheritance || m_graphType==Collaboration)
   {
-    BaseClassList *bcl = base ? cd->baseClasses() : cd->subClasses();
-    if (bcl)
+    for (const auto &bcd : base ? cd->baseClasses() : cd->subClasses())
     {
-      BaseClassListIterator bcli(*bcl);
-      BaseClassDef *bcd;
-      for ( ; (bcd=bcli.current()) ; ++bcli )
-      {
-        //printf("-------- inheritance relation %s->%s templ='%s'\n",
-        //            cd->name().data(),bcd->classDef->name().data(),bcd->templSpecifiers.data());
-        addClass(bcd->classDef,n,bcd->prot,0,bcd->usedName,
-          bcd->templSpecifiers,base,distance);
-      }
+      //printf("-------- inheritance relation %s->%s templ='%s'\n",
+      //            cd->name().data(),bcd->classDef->name().data(),bcd->templSpecifiers.data());
+      addClass(bcd.classDef,n,bcd.prot,0,bcd.usedName,bcd.templSpecifiers,base,distance);
     }
   }
   if (m_graphType == Collaboration)
@@ -275,32 +281,13 @@ void DotClassGraph::buildGraph(const ClassDef *cd,DotNode *n,bool base,int dista
       UsesClassDef *ucd;
       for (;(ucd=ucdi.current());++ucdi)
       {
-        QCString label;
-        QDictIterator<void> dvi(*ucd->accessors);
-        const char *s;
-        bool first=TRUE;
-        int count=0;
-        int maxLabels=10;
-        for (;(s=dvi.currentKey()) && count<maxLabels;++dvi,++count)
-        {
-          if (first)
-          {
-            label=s;
-            first=FALSE;
-          }
-          else
-          {
-            label+=QCString("\n")+s;
-          }
-        }
-        if (count==maxLabels) label+="\n...";
         //printf("addClass: %s templSpec=%s\n",ucd->classDef->name().data(),ucd->templSpecifiers.data());
-        addClass(ucd->classDef,n,EdgeInfo::Purple,label,0,
+        addClass(ucd->classDef,n,EdgeInfo::Purple,joinLabels(ucd->accessors),0,
           ucd->templSpecifiers,base,distance);
       }
     }
   }
-  if (TEMPLATE_RELATIONS && base)
+  if (Config_getBool(TEMPLATE_RELATIONS) && base)
   {
     ConstraintClassDict *dict = cd->templateTypeConstraints();
     if (dict)
@@ -309,27 +296,8 @@ void DotClassGraph::buildGraph(const ClassDef *cd,DotNode *n,bool base,int dista
       ConstraintClassDef *ccd;
       for (;(ccd=ccdi.current());++ccdi)
       {
-        QCString label;
-        QDictIterator<void> dvi(*ccd->accessors);
-        const char *s;
-        bool first=TRUE;
-        int count=0;
-        int maxLabels=10;
-        for (;(s=dvi.currentKey()) && count<maxLabels;++dvi,++count)
-        {
-          if (first)
-          {
-            label=s;
-            first=FALSE;
-          }
-          else
-          {
-            label+=QCString("\n")+s;
-          }
-        }
-        if (count==maxLabels) label+="\n...";
         //printf("addClass: %s templSpec=%s\n",ucd->classDef->name().data(),ucd->templSpecifiers.data());
-        addClass(ccd->classDef,n,EdgeInfo::Orange2,label,0,
+        addClass(ccd->classDef,n,EdgeInfo::Orange2,joinLabels(ccd->accessors),0,
           0,TRUE,distance);
       }
     }
@@ -337,7 +305,7 @@ void DotClassGraph::buildGraph(const ClassDef *cd,DotNode *n,bool base,int dista
 
   // ---- Add template instantiation relations
 
-  if (TEMPLATE_RELATIONS)
+  if (Config_getBool(TEMPLATE_RELATIONS))
   {
     if (base) // template relations for base classes
     {
@@ -402,7 +370,7 @@ DotClassGraph::DotClassGraph(const ClassDef *cd,GraphType t)
   buildGraph(cd,m_startNode,TRUE,1);
   if (t==Inheritance) buildGraph(cd,m_startNode,FALSE,1);
 
-  m_lrRank = determineVisibleNodes(m_startNode,DOT_GRAPH_MAX_NODES,t==Inheritance);
+  m_lrRank = determineVisibleNodes(m_startNode,Config_getInt(DOT_GRAPH_MAX_NODES),t==Inheritance);
   QList<DotNode> openNodeQueue;
   openNodeQueue.append(m_startNode);
   determineTruncatedNodes(openNodeQueue,t==Inheritance);
@@ -416,12 +384,12 @@ bool DotClassGraph::isTrivial() const
   if (m_graphType==Inheritance)
     return m_startNode->children()==0 && m_startNode->parents()==0;
   else
-    return !UML_LOOK && m_startNode->children()==0;
+    return !Config_getBool(UML_LOOK) && m_startNode->children()==0;
 }
 
 bool DotClassGraph::isTooBig() const
 {
-  return numNodes()>=DOT_GRAPH_MAX_NODES;
+  return numNodes()>=Config_getInt(DOT_GRAPH_MAX_NODES);
 }
 
 int DotClassGraph::numNodes() const

@@ -26,10 +26,14 @@
  *	includes
  */
 
+#include "doxygen.h"
+
 #include <stack>
 #include <deque>
 #include <algorithm>
 #include <utility>
+#include <mutex>
+#include <thread>
 
 #include <stdio.h>
 #include <assert.h>
@@ -44,7 +48,6 @@
 #include "pre.h"
 #include "constexp.h"
 #include "define.h"
-#include "doxygen.h"
 #include "message.h"
 #include "util.h"
 #include "defargs.h"
@@ -57,8 +60,6 @@
 #include "condparser.h"
 #include "config.h"
 #include "filedef.h"
-#include "memberdef.h"
-#include "membername.h"
 
 #define YY_NO_UNISTD_H 1
 
@@ -93,246 +94,148 @@ struct FileState
   QCString fileName;
 };
 
-/** @brief Singleton that manages the defines available while 
+struct PreIncludeInfo
+{
+  PreIncludeInfo(const char *fn,FileDef *srcFd, FileDef *dstFd,const char *iName,bool loc, bool imp)
+    : fileName(fn), fromFileDef(srcFd), toFileDef(dstFd), includeName(iName), local(loc), imported(imp)
+  {
+  }
+  QCString fileName;    // file name in which the include statement was found
+  FileDef *fromFileDef; // filedef in which the include statement was found
+  FileDef *toFileDef;   // filedef to which the include is pointing
+  QCString includeName; // name used in the #include statement
+  bool local;           // is it a "local" or <global> include
+  bool imported;        // include via "import" keyword (Objective-C)
+};
+
+/** A dictionary of managed Define objects. */
+typedef std::map< std::string, Define > DefineMap;
+
+/** @brief Class that manages the defines available while 
  *  preprocessing files. 
  */
 class DefineManager
 {
-  /** Local class used to hold the defines for a single file */
-  class DefinesPerFile
-  {
-    public:
-      /** Creates an empty container for defines */
-      DefinesPerFile(DefineManager *parent) 
-         : m_parent(parent)
-      {
-      }
-      /** Destroys the object */
-      virtual ~DefinesPerFile()
-      {
-      }
-      /** Adds a define in the context of a file. Will replace 
-       *  an existing define with the same name (redefinition)
-       *  @param def The Define object to add. Ownership will be transferred.
-       */
-      void addDefine(std::unique_ptr<Define> &&def)
-      {
-	auto it = m_defines.find(def->name.data());
-	if (it!=m_defines.end()) // redefine
-	{
-	  m_defines.erase(it);
-	}
-	m_defines.insert(std::make_pair(toStdString(def->name),std::move(def)));
-      }
-      /** Adds an include file for this file 
-       *  @param fileName The name of the include file
-       */
-      void addInclude(const char *fileName)
-      {
-	m_includedFiles.insert(fileName);
-      }
-      void collectDefines(DefineMapRef &map,StringSet &includeStack);
-    private:
-      DefineManager *m_parent;
-      DefineMapOwning m_defines;
-      StringSet m_includedFiles;
-  };
+  private:
+    /** Local class used to hold the defines for a single file */
+    class DefinesPerFile
+    {
+      public:
+        /** Creates an empty container for defines */
+        DefinesPerFile(DefineManager *parent) 
+          : m_parent(parent)
+        {
+        }
+        void addInclude(std::string fileName)
+        {
+          m_includedFiles.insert(fileName);
+        }
+        void store(const DefineMap &fromMap)
+        {
+          for (auto &kv : fromMap)
+          {
+            m_defines.emplace(kv.first,kv.second);
+          }
+          //printf("  m_defines.size()=%zu\n",m_defines.size());
+          m_stored=true;
+        }
+        void retrieve(DefineMap &toMap)
+        {
+          StringSet includeStack;
+          retrieveRec(toMap,includeStack);
+        }
+        void retrieveRec(DefineMap &toMap,StringSet &includeStack)
+        {
+          //printf("  retrieveRec #includedFiles=%zu\n",m_includedFiles.size());
+          for (auto incFile : m_includedFiles)
+          {
+            DefinesPerFile *dpf = m_parent->find(incFile);
+            if (dpf && includeStack.find(incFile)==includeStack.end())
+            {
+              includeStack.insert(incFile);
+              dpf->retrieveRec(toMap,includeStack);
+              //printf("  retrieveRec: processing include %s: #toMap=%zu\n",incFile.data(),toMap.size());
+            }
+          }
+          for (auto &kv : m_defines)
+          {
+            toMap.emplace(kv.first,kv.second);
+          }
+        }
+        bool stored() const { return m_stored; }
+      private:
+        DefineManager *m_parent;
+        DefineMap m_defines;
+        StringSet m_includedFiles;
+        bool m_stored = false;
+    };
 
-  public:
     friend class DefinesPerFile;
+  public:
 
-    /** Creates a new DefineManager object */
-    DefineManager()
+    void addInclude(std::string fromFileName,std::string toFileName)
     {
-    }
-
-    /** Destroys the object */
-    virtual ~DefineManager() 
-    {
-    }
-
-    /** Starts a context in which defines are collected. 
-     *  Called at the start of a new file that is preprocessed.
-     *  @param fileName the name of the file to process.
-     */
-    void startContext(const char *fileName)
-    {
-      //printf("DefineManager::startContext()\n");
-      m_contextDefines.clear();
-      if (fileName==0) return;
-      //DefinesPerFile *dpf = m_fileMap.find(fileName);
-      auto it = m_fileMap.find(fileName);
-      if (it==m_fileMap.end())
-      {
-	//printf("New file!\n");
-	m_fileMap.emplace(toStdString(fileName),std::make_unique<DefinesPerFile>(this));
-      }
-    }
-    /** Ends the context started with startContext() freeing any
-     *  defines collected within in this context.
-     */
-    void endContext()
-    {
-      //printf("DefineManager::endContext()\n");
-      m_contextDefines.clear();
-    }
-    /** Add an included file to the current context.
-     *  If the file has been pre-processed already, all defines are added
-     *  to the context.
-     *  @param fileName The name of the include file to add to the context.
-     */
-    void addFileToContext(const char *fileName)
-    {
-      if (fileName==0) return;
-      //printf("DefineManager::addFileToContext(%s)\n",fileName);
-      auto it = m_fileMap.find(fileName);
-      if (it==m_fileMap.end())
-      {
-	//printf("New file!\n");
-	m_fileMap.emplace(toStdString(fileName),std::make_unique<DefinesPerFile>(this));
-      }
-      else
-      {
-	//printf("existing file!\n");
-        StringSet includeStack;
-	it->second->collectDefines(m_contextDefines,includeStack);
-      }
-    }
-
-    /** Add a define to the manager object.
-     *  @param fileName The file in which the define was found
-     *  @param def The Define object to add. Ownership will be transferred.
-     */
-    void addDefine(const char *fileName,std::unique_ptr<Define> &&def)
-    {
-      if (fileName==0) return;
-      //printf("DefineManager::addDefine(%s,%s)\n",fileName,def->name.data());
-
-      m_contextDefines[def->name.data()] = def.get();
-
-      auto it = m_fileMap.find(fileName);
-      if (it==m_fileMap.end())
-      {
-        auto ptr = std::make_unique<DefinesPerFile>(this);
-        ptr->addDefine(std::move(def));
-	m_fileMap.emplace(toStdString(fileName),std::move(ptr));
-      }
-      else
-      {
-        it->second->addDefine(std::move(def));
-      }
-    }
-
-    /** Add an include relation to the manager object.
-     *  @param fromFileName file name in which the include was found.
-     *  @param toFileName file name that is included.
-     */
-    void addInclude(const char *fromFileName,const char *toFileName)
-    {
-      //printf("DefineManager::addInclude(%s,%s)\n",fromFileName,toFileName);
-      if (fromFileName==0 || toFileName==0) return;
+      //printf("DefineManager::addInclude('%s'->'%s')\n",fromFileName.c_str(),toFileName.c_str());
       auto it = m_fileMap.find(fromFileName);
       if (it==m_fileMap.end())
       {
-        auto ptr = std::make_unique<DefinesPerFile>(this);
-        ptr->addInclude(toFileName);
-	m_fileMap.emplace(toStdString(fromFileName),std::move(ptr));
+        it = m_fileMap.emplace(fromFileName,std::make_unique<DefinesPerFile>(this)).first;
       }
-      else
-      {
-        it->second->addInclude(toFileName);
-      }
-    }
-    /** Returns a reference to a Define object given its name or 0 if the Define does
-     *  not exist.
-     */
-    Define *isDefined(const char *name)
-    {
-      Define *d=0;
-      auto it = m_contextDefines.find(name);
-      if (it!=m_contextDefines.end())
-      {
-        d = it->second;
-        if (d->undef)
-        {
-          d=0;
-        }
-      }
-      //printf("isDefined(%s)=%p\n",name,d);
-      return d;
+      auto &dpf = it->second;
+      dpf->addInclude(toFileName);
     }
 
-    /** Returns a reference to the defines found in the current context. */
-    const DefineMapRef &defineContext() const
+    void store(std::string fileName,const DefineMap &fromMap)
     {
-      return m_contextDefines;
+      //printf("DefineManager::store(%s,#=%zu)\n",fileName.c_str(),fromMap.size());
+      auto it = m_fileMap.find(fileName);
+      if (it==m_fileMap.end())
+      {
+        it = m_fileMap.emplace(fileName,std::make_unique<DefinesPerFile>(this)).first;
+      }
+      it->second->store(fromMap);
     }
 
-  private:
-    /** Helper function to collect all define for a given file */
-    void collectDefinesForFile(const char *fileName,DefineMapRef &map)
+    void retrieve(std::string fileName,DefineMap &toMap)
     {
-      if (fileName==0) return;
       auto it = m_fileMap.find(fileName);
       if (it!=m_fileMap.end())
       {
-        StringSet includeStack;
-	it->second->collectDefines(map,includeStack);
+        auto &dpf = it->second;
+        dpf->retrieve(toMap);
       }
+      //printf("DefineManager::retrieve(%s,#=%zu)\n",fileName.c_str(),toMap.size());
     }
 
-    /** Helper function to return the DefinesPerFile object for a given file name. */
-    DefinesPerFile *find(const char *fileName) const
+    bool alreadyProcessed(std::string fileName) const
     {
-      if (fileName==0) return nullptr;
+      auto it = m_fileMap.find(fileName);
+      if (it!=m_fileMap.end())
+      {
+        return it->second->stored();
+      }
+      return false;
+    }
+
+  private:
+    /** Helper function to return the DefinesPerFile object for a given file name. */
+    DefinesPerFile *find(std::string fileName) const
+    {
       auto it = m_fileMap.find(fileName);
       return it!=m_fileMap.end() ? it->second.get() : nullptr;
     }
 
-    std::map< std::string,std::unique_ptr<DefinesPerFile> > m_fileMap;
-    DefineMapRef m_contextDefines;
+    std::unordered_map< std::string, std::unique_ptr<DefinesPerFile> > m_fileMap;
 };
-
-
-/** Collects all defines for a file and all files that the file includes.
- *  This function will recursively call itself for each file.
- *  @param dict The dictionary to fill with the defines. A redefine will
- *         replace a previous definition.
- *  @param includeStack The stack of includes, used to stop recursion in
- *         case there is a cyclic include dependency.
- */
-void DefineManager::DefinesPerFile::collectDefines(
-                     DefineMapRef &map,StringSet &includeStack)
-{
-  //printf("DefinesPerFile::collectDefines #defines=%d\n",m_defines.count());
-  {
-    for (auto incFile : m_includedFiles)
-    {
-      DefinesPerFile *dpf = m_parent->find(incFile.c_str());
-      if (dpf && includeStack.find(incFile)==includeStack.end())
-      {
-        //printf("  processing include %s\n",incFile.data());
-	includeStack.insert(incFile);
-	dpf->collectDefines(map,includeStack);
-      }
-    }
-  }
-  {
-    for (auto &kv : m_defines)
-    {
-      const std::unique_ptr<Define> &def = kv.second;
-      map[def->name.data()] = def.get();
-      //printf("  adding define %s\n",def->name.data());
-    }
-  }
-}
 
 
 /* -----------------------------------------------------------------
  *
  *	global state
  */
-static StringUnorderedSet    g_allIncludes;
+static std::mutex            g_debugMutex;
+static std::mutex            g_globalDefineMutex;
+static std::mutex            g_updateGlobals;
 static DefineManager         g_defineManager;
 
 
@@ -388,6 +291,7 @@ struct preYY_state
   yy_size_t          fenceSize      = 0;
   bool               ccomment       = false;
   QCString           delimiter;
+  bool               isSpecialComment = false;
   StringVector                             pathList;
   IntMap                                   argMap;
   BoolStack                                levelGuard;
@@ -396,6 +300,10 @@ struct preYY_state
   std::unordered_map<std::string,Define*>  expandedDict;
   StringUnorderedSet                       expanded;
   ConstExpressionParser                    constExpParser;
+  DefineMap                                contextDefines; // macros imported from other files
+  DefineMap                                localDefines;   // macros defined in this file
+  DefineList                               macroDefinitions;
+  LinkedMap<PreIncludeInfo>                includeRelations;
 };
 
 // stateless functions
@@ -415,10 +323,11 @@ static bool      otherCaseDone(yyscan_t yyscanner);
 static bool  computeExpression(yyscan_t yyscanner,const QCString &expr);
 static void   startCondSection(yyscan_t yyscanner,const char *sectId);
 static void     endCondSection(yyscan_t yyscanner);
+static void addMacroDefinition(yyscan_t yyscanner);
 static void          addDefine(yyscan_t yyscanner);
-static std::unique_ptr<Define> newDefine(yyscan_t yyscanner);
 static void        setFileName(yyscan_t yyscanner,const char *name);
 static yy_size_t        yyread(yyscan_t yyscanner,char *buf,yy_size_t max_size);
+static Define *      isDefined(yyscan_t yyscanner,const char *name);
 
 /* ----------------------------------------------------------------- */
 
@@ -511,7 +420,7 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
 					      !(
 					         (yyextra->includeStack.empty() || yyextra->curlyCount>0) &&
 					         yyextra->macroExpansion &&
-					         (def=g_defineManager.isDefined(name)) &&
+					         (def=isDefined(yyscanner,name)) &&
 						 /*macroIsAccessible(def) &&*/
 					         (!yyextra->expandOnlyPredef || def->isPredefined)
 					       )
@@ -637,7 +546,7 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
   					  yyextra->expectGuard = FALSE;
   					  Define *def=0;
 					  //def=yyextra->globalDefineDict->find(yytext);
-					  //def=g_defineManager.isDefined(yytext);
+					  //def=isDefined(yyscanner,yytext);
 					  //printf("Search for define %s found=%d yyextra->includeStack.empty()=%d "
 					  //       "yyextra->curlyCount=%d yyextra->macroExpansion=%d yyextra->expandOnlyPredef=%d "
 					  //	 "isPreDefined=%d\n",yytext,def ? 1 : 0,
@@ -646,7 +555,7 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
 					  //	);
 					  if ((yyextra->includeStack.empty() || yyextra->curlyCount>0) &&
 					      yyextra->macroExpansion &&
-					      (def=g_defineManager.isDefined(yytext)) &&
+					      (def=isDefined(yyscanner,yytext)) &&
 				              /*(def->isPredefined || macroIsAccessible(def)) && */
 					      (!yyextra->expandOnlyPredef || def->isPredefined)
 					     )
@@ -674,7 +583,7 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
                                           Define *def=0;
   					  if ((yyextra->includeStack.empty() || yyextra->curlyCount>0) && 
 					      yyextra->macroExpansion &&
-					      (def=g_defineManager.isDefined(yytext)) &&
+					      (def=isDefined(yyscanner,yytext)) &&
 					      def->nargs==-1 &&
 				              /*(def->isPredefined || macroIsAccessible(def)) &&*/
 					      (!yyextra->expandOnlyPredef || def->isPredefined)
@@ -891,7 +800,7 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
 <Command>. {yyextra->yyColNr+=(int)yyleng;}
 <UndefName>{ID}				{
   					  Define *def;
-  					  if ((def=g_defineManager.isDefined(yytext)) 
+  					  if ((def=isDefined(yyscanner,yytext)) 
 					      /*&& !def->isPredefined*/
 					      && !def->nonRecursive
 					     )
@@ -933,7 +842,7 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
   					}
 <DefinedExpr1,DefinedExpr2>\\\n		{ yyextra->yyLineNr++; outputChar(yyscanner,'\n'); }
 <DefinedExpr1>{ID}			{
-  					  if (g_defineManager.isDefined(yytext) || yyextra->guardName==yytext)
+  					  if (isDefined(yyscanner,yytext) || yyextra->guardName==yytext)
 					    yyextra->guardExpr+=" 1L ";
 					  else
 					    yyextra->guardExpr+=" 0L ";
@@ -941,7 +850,7 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
 					  BEGIN(Guard);
   					}
 <DefinedExpr2>{ID}			{
-  					  if (g_defineManager.isDefined(yytext) || yyextra->guardName==yytext)
+  					  if (isDefined(yyscanner,yytext) || yyextra->guardName==yytext)
 					    yyextra->guardExpr+=" 1L ";
 					  else
 					    yyextra->guardExpr+=" 0L ";
@@ -1238,7 +1147,7 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
   					}
 <SkipCComment>^({B}*"*"+)?{B}{0,3}"~~~"[~]*   {
                                           bool markdownSupport = Config_getBool(MARKDOWN_SUPPORT);
-                                          if (!markdownSupport)
+                                          if (!markdownSupport || !yyextra->isSpecialComment)
                                           {
                                             REJECT;
                                           }
@@ -1251,7 +1160,7 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
                                         }
 <SkipCComment>^({B}*"*"+)?{B}{0,3}"```"[`]*            {
                                           bool markdownSupport = Config_getBool(MARKDOWN_SUPPORT);
-                                          if (!markdownSupport)
+                                          if (!markdownSupport || !yyextra->isSpecialComment)
                                           {
                                             REJECT;
                                           }
@@ -1540,19 +1449,13 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
 					  //printf("Define name='%s' text='%s' litTexti='%s'\n",yyextra->defName.data(),yyextra->defText.data(),yyextra->defLitText.data());
 					  if (yyextra->includeStack.empty() || yyextra->curlyCount>0) 
 					  {
-					    addDefine(yyscanner);
+					    addMacroDefinition(yyscanner);
 					  }
-					  def=g_defineManager.isDefined(yyextra->defName);
+					  def=isDefined(yyscanner,yyextra->defName);
 					  if (def==0) // new define
 					  {
 					    //printf("new define '%s'!\n",yyextra->defName.data());
-					    g_defineManager.addDefine(yyextra->yyFileName,newDefine(yyscanner));
-
-					    // also add it to the local file list if it is a source file
-					    //if (yyextra->isSource && yyextra->includeStack.empty())
-					    //{
-					    //  yyextra->fileDefineDict->insert(yyextra->defName,nd);
-					    //}
+					    addDefine(yyscanner);
 					  }
 					  else if (def /*&& macroIsAccessible(def)*/)
 					       // name already exists
@@ -1599,7 +1502,7 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
 					  }
 					}
 <SkipDoubleQuote>"//"[/]?		{ yyextra->defText += yytext; yyextra->defLitText+=yytext; }
-<SkipDoubleQuote>"/*"			{ yyextra->defText += yytext; yyextra->defLitText+=yytext; }
+<SkipDoubleQuote>"/*"[*]?		{ yyextra->defText += yytext; yyextra->defLitText+=yytext; }
 <SkipDoubleQuote>\"			{
   					  yyextra->defText += *yytext; yyextra->defLitText+=yytext; 
 					  BEGIN(DefineText);
@@ -1624,6 +1527,7 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
 					  }
 					  else
 					  {
+                                            QCString toFileName = yyextra->yyFileName;
                                             const std::unique_ptr<FileState> &fs=yyextra->includeStack.back();
 					    //fileDefineCache->merge(yyextra->yyFileName,fs->fileName);
 					    YY_BUFFER_STATE oldBuf = YY_CURRENT_BUFFER;
@@ -1644,10 +1548,42 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
                                             outputArray(yyscanner,lineStr.data(),lineStr.length());
 
 					    yyextra->includeStack.pop_back();
+
+                                            {
+                                              std::lock_guard<std::mutex> lock(g_globalDefineMutex);
+                                              // to avoid deadlocks we allow multiple threads to process the same header file.
+                                              // The first one to finish will store the results globally. After that the
+                                              // next time the same file is encountered, the stored data is used and the file
+                                              // is not processed again.
+                                              if (!g_defineManager.alreadyProcessed(toFileName.str()))
+                                              {
+                                                // now that the file is completely processed, prevent it from processing it again
+                                                g_defineManager.addInclude(yyextra->yyFileName.str(),toFileName.str());
+                                                g_defineManager.store(toFileName.str(),yyextra->localDefines);
+                                              }
+                                              else
+                                              {
+                                                if (Debug::isFlagSet(Debug::Preprocessor))
+                                                {
+                                                  Debug::print(Debug::Preprocessor,0,"#include %s: was already processed by another thread! not storing data...\n",qPrint(toFileName));
+                                                }
+                                              }
+                                            }
+                                            // move the local macros definitions for in this file to the translation unit context
+                                            for (const auto &kv : yyextra->localDefines)
+                                            {
+                                              auto pair = yyextra->contextDefines.insert(kv);
+                                              if (!pair.second) // define already in context -> replace with local version
+                                              {
+                                                yyextra->contextDefines.erase(pair.first);
+                                                yyextra->contextDefines.insert(kv);
+                                              }
+                                            }
+                                            yyextra->localDefines.clear();
 					  }
   					}
 <*>"/*"/"*/"				|
-<*>"/*"[*]?				{
+<*>"/*"[*!]?				{
                                           if (YY_START==SkipVerbatim || YY_START==SkipCond)
                                           {
                                             REJECT;
@@ -1657,11 +1593,19 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
 					    outputArray(yyscanner,yytext,(int)yyleng);
   					    yyextra->lastCContext=YY_START;
 					    yyextra->commentCount=1;
-					    if (yyleng==3) yyextra->lastGuardName.resize(0); // reset guard in case the #define is documented!
+					    if (yyleng==3) 
+                                            {
+                                              yyextra->isSpecialComment = true;
+                                              yyextra->lastGuardName.resize(0); // reset guard in case the #define is documented!
+                                            }
+                                            else
+                                            {
+                                              yyextra->isSpecialComment = false;
+                                            }
 					    BEGIN(SkipCComment);
                                           }
   					}
-<*>"//"[/]?				{
+<*>"//"[/!]?				{
                                           if (YY_START==SkipVerbatim || YY_START==SkipCond || getLanguageFromFileName(yyextra->yyFileName)==SrcLangExt_Fortran)
                                           {
                                             REJECT;
@@ -1670,7 +1614,15 @@ CHARLIT   (("'"\\[0-7]{1,3}"'")|("'"\\."'")|("'"[^'\\\n]{1,4}"'"))
                                           {
 					    outputArray(yyscanner,yytext,(int)yyleng);
   					    yyextra->lastCPPContext=YY_START;
-					    if (yyleng==3) yyextra->lastGuardName.resize(0); // reset guard in case the #define is documented!
+					    if (yyleng==3)
+                                            {
+                                              yyextra->isSpecialComment = true;
+                                              yyextra->lastGuardName.resize(0); // reset guard in case the #define is documented!
+                                            }
+                                            else
+                                            {
+                                              yyextra->isSpecialComment = false;
+                                            }
 					    BEGIN(SkipCPPComment);
                                           }
 					}
@@ -1759,41 +1711,41 @@ static void setCaseDone(yyscan_t yyscanner,bool value)
 }
 
 
-static FileState *checkAndOpenFile(yyscan_t yyscanner,const QCString &fileName,bool &alreadyIncluded)
+static FileState *checkAndOpenFile(yyscan_t yyscanner,const QCString &fileName,bool &alreadyProcessed)
 {
   YY_EXTRA_TYPE state = preYYget_extra(yyscanner);
-  alreadyIncluded = FALSE;
+  alreadyProcessed = FALSE;
   FileState *fs = 0;
   //printf("checkAndOpenFile(%s)\n",fileName.data());
   QFileInfo fi(fileName);
   if (fi.exists() && fi.isFile())
   {
-    const QStrList &exclPatterns = Config_getList(EXCLUDE_PATTERNS);
-    if (patternMatch(fi,&exclPatterns)) return 0;
+    const StringVector &exclPatterns = Config_getList(EXCLUDE_PATTERNS);
+    if (patternMatch(fi,exclPatterns)) return 0;
 
     QCString absName = fi.absFilePath().utf8();
 
     // global guard
     if (state->curlyCount==0) // not #include inside { ... }
     {
-      if (g_allIncludes.find(absName.data())!=g_allIncludes.end())
+      std::lock_guard<std::mutex> lock(g_globalDefineMutex);
+      if (g_defineManager.alreadyProcessed(absName.str()))
       {
-        alreadyIncluded = TRUE;
+        alreadyProcessed = TRUE;
         //printf("  already included 1\n");
         return 0; // already done
       }
-      g_allIncludes.insert(absName.data());
     }
     // check include stack for absName
 
-    alreadyIncluded = std::any_of(
+    alreadyProcessed = std::any_of(
       state->includeStack.begin(),
       state->includeStack.end(),
       [absName](const std::unique_ptr<FileState> &lfs)
         { return lfs->fileName==absName; }
     );
 
-    if (alreadyIncluded)
+    if (alreadyProcessed)
     {
       //printf("  already included 2\n");
       return 0;
@@ -1816,20 +1768,20 @@ static FileState *checkAndOpenFile(yyscan_t yyscanner,const QCString &fileName,b
   return fs;
 }
 
-static FileState *findFile(yyscan_t yyscanner, const char *fileName,bool localInclude,bool &alreadyIncluded)
+static FileState *findFile(yyscan_t yyscanner, const char *fileName,bool localInclude,bool &alreadyProcessed)
 {
   YY_EXTRA_TYPE state = preYYget_extra(yyscanner);
   //printf("** findFile(%s,%d) state->yyFileName=%s\n",fileName,localInclude,state->yyFileName.data());
   if (Portable::isAbsolutePath(fileName))
   {
-    FileState *fs = checkAndOpenFile(yyscanner,fileName,alreadyIncluded);
+    FileState *fs = checkAndOpenFile(yyscanner,fileName,alreadyProcessed);
     if (fs)
     {
       setFileName(yyscanner,fileName);
       state->yyLineNr=1;
       return fs;
     }
-    else if (alreadyIncluded)
+    else if (alreadyProcessed)
     {
       return 0;
     }
@@ -1840,14 +1792,14 @@ static FileState *findFile(yyscan_t yyscanner, const char *fileName,bool localIn
     if (fi.exists())
     {
       QCString absName = QCString(fi.dirPath(TRUE).data())+"/"+fileName;
-      FileState *fs = checkAndOpenFile(yyscanner,absName,alreadyIncluded);
+      FileState *fs = checkAndOpenFile(yyscanner,absName,alreadyProcessed);
       if (fs)
       {
 	setFileName(yyscanner,absName);
 	state->yyLineNr=1;
 	return fs;
       }
-      else if (alreadyIncluded)
+      else if (alreadyProcessed)
       {
 	return 0;
       }
@@ -1861,7 +1813,7 @@ static FileState *findFile(yyscan_t yyscanner, const char *fileName,bool localIn
   {
     std::string absName = path+"/"+fileName;
     //printf("  Looking for %s in %s\n",fileName,path.c_str());
-    FileState *fs = checkAndOpenFile(yyscanner,absName.c_str(),alreadyIncluded);
+    FileState *fs = checkAndOpenFile(yyscanner,absName.c_str(),alreadyProcessed);
     if (fs)
     {
       setFileName(yyscanner,absName.c_str());
@@ -1869,7 +1821,7 @@ static FileState *findFile(yyscan_t yyscanner, const char *fileName,bool localIn
       //printf("  -> found it\n");
       return fs;
     }
-    else if (alreadyIncluded)
+    else if (alreadyProcessed)
     {
       return 0;
     }
@@ -2084,7 +2036,7 @@ static bool replaceFunctionMacro(yyscan_t yyscanner,const QCString &expr,QCStrin
   QCString arg;
   int argCount=0;
   bool done=FALSE;
-  
+
   // PHASE 1: read the macro arguments
   if (def->nargs==0)
   {
@@ -2411,7 +2363,7 @@ static bool expandExpression(yyscan_t yyscanner,QCString &expr,QCString *rest,in
     {
       if (state->expandedDict.find(macroName.data())==state->expandedDict.end()) // expand macro
       {
-	Define *def=g_defineManager.isDefined(macroName);
+	Define *def=isDefined(yyscanner,macroName);
         if (macroName=="defined")
         {
   	  //printf("found defined inside macro definition '%s'\n",expr.right(expr.length()-p).data());
@@ -2443,7 +2395,7 @@ static bool expandExpression(yyscan_t yyscanner,QCString &expr,QCString *rest,in
 	}
 	else if (def && def->nargs>=0) // function macro
 	{
-          //printf(" >>>> call replaceFunctionMacro\n");
+          //printf(" >>>> call replaceFunctionMacro expr='%s'\n",qPrint(expr));
 	  replaced=replaceFunctionMacro(yyscanner,expr,rest,p+l,len,def,expMacro,level);
           //printf(" <<<< call replaceFunctionMacro: replaced=%d\n",replaced);
 	  len+=l;
@@ -2464,6 +2416,10 @@ static bool expandExpression(yyscan_t yyscanner,QCString &expr,QCString *rest,in
 	    expanded = expandExpression(yyscanner,resultExpr,&restExpr,0,level+1);
 	    state->expandedDict.erase(toStdString(macroName));
 	  }
+    else if (def && def->nonRecursive)
+    {
+      expanded = true;
+    }
           if (expanded)
           {
 	    expr=expr.left(p)+resultExpr+restExpr;
@@ -2764,83 +2720,76 @@ static QCString expandMacro(yyscan_t yyscanner,const QCString &name)
   return n;
 }
 
-static std::unique_ptr<Define> newDefine(yyscan_t yyscanner)
+static void addDefine(yyscan_t yyscanner)
 {
   YY_EXTRA_TYPE state = preYYget_extra(yyscanner);
-  std::unique_ptr<Define> def = std::make_unique<Define>();
-  def->name       = state->defName;
-  def->definition = state->defText.stripWhiteSpace();
-  def->nargs      = state->defArgs;
-  def->fileName   = state->yyFileName; 
-  def->fileDef    = state->yyFileDef;
-  def->lineNr     = state->yyLineNr-state->yyMLines;
-  def->columnNr   = state->yyColNr;
-  def->varArgs    = state->defVarArgs;
-  //printf("newDefine: %s %s file: %s\n",def->name.data(),def->definition.data(),
-  //    def->fileDef ? def->fileDef->name().data() : def->fileName.data());
-  //printf("newDefine: '%s'->'%s'\n",def->name.data(),def->definition.data());
-  if (!def->name.isEmpty() && 
-      Doxygen::expandAsDefinedSet.find(def->name.data())!=Doxygen::expandAsDefinedSet.end())
+  Define def;
+  def.name       = state->defName;
+  def.definition = state->defText.stripWhiteSpace();
+  def.nargs      = state->defArgs;
+  def.fileName   = state->yyFileName; 
+  def.fileDef    = state->yyFileDef;
+  def.lineNr     = state->yyLineNr-state->yyMLines;
+  def.columnNr   = state->yyColNr;
+  def.varArgs    = state->defVarArgs;
+  //printf("newDefine: %s %s file: %s\n",def.name.data(),def.definition.data(),
+  //    def.fileDef ? def.fileDef->name().data() : def.fileName.data());
+  //printf("newDefine: '%s'->'%s'\n",def.name.data(),def.definition.data());
+  if (!def.name.isEmpty() && 
+      Doxygen::expandAsDefinedSet.find(def.name.str())!=Doxygen::expandAsDefinedSet.end())
   {
-    def->isPredefined=TRUE;
+    def.isPredefined=TRUE;
   }
-  return def;
+  auto it = state->localDefines.find(def.name.str());
+  if (it!=state->localDefines.end()) // redefine
+  {
+    state->localDefines.erase(it);
+  }
+  state->localDefines.insert(std::make_pair(def.name.str(),def));
 }
 
-static void addDefine(yyscan_t yyscanner)
+static void addMacroDefinition(yyscan_t yyscanner)
 {
   YY_EXTRA_TYPE state = preYYget_extra(yyscanner);
   if (state->skip) return; // do not add this define as it is inside a 
                       // conditional section (cond command) that is disabled.
 
-  //printf("addDefine '%s' '%s'\n",state->defName.data(),state->defArgsStr.data());
-  //ArgumentList *al = new ArgumentList;
-  //stringToArgumentList(state->defArgsStr,al);
-  std::unique_ptr<MemberDef> md { createMemberDef(
-      state->yyFileName,state->yyLineNr-state->yyMLines,state->yyColNr,
-      "#define",state->defName,state->defArgsStr,0,
-      Public,Normal,FALSE,Member,MemberType_Define,ArgumentList(),ArgumentList(),"") };
-  if (!state->defArgsStr.isEmpty())
-  {
-    //printf("addDefine() state->defName='%s' state->defArgsStr='%s'\n",state->defName.data(),state->defArgsStr.data());
-    md->moveArgumentList(stringToArgumentList(SrcLangExt_Cpp, state->defArgsStr));
-  }
-  //printf("Setting initializer for '%s' to '%s'\n",state->defName.data(),state->defText.data());
-  int l=state->defLitText.find('\n');
-  if (l>0 && state->defLitText.left(l).stripWhiteSpace()=="\\")
+  Define define;
+  define.fileName = state->yyFileName;
+  define.lineNr   = state->yyLineNr - state->yyMLines;
+  define.columnNr = state->yyColNr;
+  define.name     = state->defName;
+  define.args     = state->defArgsStr;
+  define.fileDef  = state->inputFileDef;
+
+  QCString litText = state->defLitText;
+  int l=litText.find('\n');
+  if (l>0 && litText.left(l).stripWhiteSpace()=="\\")
   {
     // strip first line if it only contains a slash
-    state->defLitText = state->defLitText.right(state->defLitText.length()-l-1);
+    litText = litText.right(litText.length()-l-1);
   }
   else if (l>0)
   {
     // align the items on the first line with the items on the second line
     int k=l+1;
-    const char *p=state->defLitText.data()+k;
+    const char *p=litText.data()+k;
     char c;
     while ((c=*p++) && (c==' ' || c=='\t')) k++;
-    state->defLitText=state->defLitText.mid(l+1,k-l-1)+state->defLitText.stripWhiteSpace();
+    litText=litText.mid(l+1,k-l-1)+litText.stripWhiteSpace();
   }
-  QCString defLitTextStripped = state->defLitText.stripWhiteSpace();
-  if (defLitTextStripped.contains('\n')>=1)
+  QCString litTextStripped = state->defLitText.stripWhiteSpace();
+  if (litTextStripped.contains('\n')>=1)
   {
-    md->setInitializer(state->defLitText);
+    define.definition = litText;
   }
   else
   {
-    md->setInitializer(defLitTextStripped);
+    define.definition = litTextStripped;
   }
-
-  //printf("pre.l: md->setFileDef(%p)\n",state->inputFileDef);
-  md->setFileDef(state->inputFileDef);
-  md->setDefinition("#define "+state->defName);
-
-  MemberName *mn=Doxygen::functionNameLinkedMap->add(state->defName);
-  if (state->yyFileDef) 
   {
-    state->yyFileDef->insertMember(md.get());
+    state->macroDefinitions.push_back(define);
   }
-  mn->push_back(std::move(md));
 }
 
 static inline void outputChar(yyscan_t yyscanner,char c)
@@ -2855,10 +2804,47 @@ static inline void outputArray(yyscan_t yyscanner,const char *a,int len)
   if (state->includeStack.empty() || state->curlyCount>0) state->outputBuf->addArray(a,len);
 }
 
+static QCString determineAbsoluteIncludeName(const QCString &curFile,const QCString &incFileName)
+{
+  bool searchIncludes = Config_getBool(SEARCH_INCLUDES);
+  QCString absIncFileName = incFileName;
+  QFileInfo fi(curFile);
+  if (fi.exists())
+  {
+    QCString absName = QCString(fi.dirPath(TRUE).data())+"/"+incFileName;
+    QFileInfo fi2(absName);
+    if (fi2.exists())
+    {
+      absIncFileName=fi2.absFilePath().utf8();
+    }
+    else if (searchIncludes) // search in INCLUDE_PATH as well
+    {
+      const StringVector &includePath = Config_getList(INCLUDE_PATH);
+      for (const auto &incPath : includePath)
+      {
+        QFileInfo fi3(incPath.c_str());
+        if (fi3.exists() && fi3.isDir())
+        {
+          absName = QCString(fi3.absFilePath().utf8())+"/"+incFileName;
+          //printf("trying absName=%s\n",absName.data());
+          QFileInfo fi4(absName);
+          if (fi4.exists())
+          {
+            absIncFileName=fi4.absFilePath().utf8();
+            break;
+          }
+          //printf( "absIncFileName = %s\n", absIncFileName.data() );
+        }
+      }
+    }
+    //printf( "absIncFileName = %s\n", absIncFileName.data() );
+  }
+  return absIncFileName;
+}
+
 static void readIncludeFile(yyscan_t yyscanner,const QCString &inc)
 {
   YY_EXTRA_TYPE state = preYYget_extra(yyscanner);
-  static bool searchIncludes = Config_getBool(SEARCH_INCLUDES);
   uint i=0;
 
   // find the start of the include file name
@@ -2890,52 +2876,19 @@ static void readIncludeFile(yyscan_t yyscanner,const QCString &inc)
     int oldLineNr        = state->yyLineNr;
     //printf("Searching for '%s'\n",incFileName.data());
 
-    // absIncFileName avoids difficulties for incFileName starting with "../" (bug 641336)
-    QCString absIncFileName = incFileName;
-    {
-      QFileInfo fi(state->yyFileName);
-      if (fi.exists())
-      {
-	QCString absName = QCString(fi.dirPath(TRUE).data())+"/"+incFileName;
-        QFileInfo fi2(absName);
-        if (fi2.exists())
-        {
-	  absIncFileName=fi2.absFilePath().utf8();
-	}
-	else if (searchIncludes) // search in INCLUDE_PATH as well
-	{
-	  QStrList &includePath = Config_getList(INCLUDE_PATH);
-	  char *incPath=includePath.first();
-	  while (incPath)
-	  {
-	    QFileInfo fi3(incPath);
-	    if (fi3.exists() && fi3.isDir())
-	    {
-	      absName = QCString(fi3.absFilePath().utf8())+"/"+incFileName;
-	      //printf("trying absName=%s\n",absName.data());
-	      QFileInfo fi4(absName);
-	      if (fi4.exists())
-	      {
-		absIncFileName=fi4.absFilePath().utf8();
-		break;
-	      }
-	      //printf( "absIncFileName = %s\n", absIncFileName.data() );
-	    }
-	    incPath=includePath.next();
-	  }
-	}
-	//printf( "absIncFileName = %s\n", absIncFileName.data() );
-      }
-    }
-    g_defineManager.addInclude(state->yyFileName,absIncFileName);
-    g_defineManager.addFileToContext(absIncFileName);
+    QCString absIncFileName = determineAbsoluteIncludeName(state->yyFileName,incFileName);
 
     // findFile will overwrite state->yyFileDef if found
     FileState *fs;
-    bool alreadyIncluded = FALSE;
+    bool alreadyProcessed = FALSE;
     //printf("calling findFile(%s)\n",incFileName.data());
-    if ((fs=findFile(yyscanner,incFileName,localInclude,alreadyIncluded))) // see if the include file can be found
+    if ((fs=findFile(yyscanner,incFileName,localInclude,alreadyProcessed))) // see if the include file can be found
     {
+      {
+        std::lock_guard<std::mutex> lock(g_globalDefineMutex);
+        g_defineManager.addInclude(oldFileName.str(),absIncFileName.str());
+      }
+
       //printf("Found include file!\n");
       if (Debug::isFlagSet(Debug::Preprocessor))
       {
@@ -2943,26 +2896,27 @@ static void readIncludeFile(yyscan_t yyscanner,const QCString &inc)
         {
           Debug::print(Debug::Preprocessor,0,"  ");
         }
-        //msg("#include %s: parsing...\n",incFileName.data());
+        Debug::print(Debug::Preprocessor,0,"#include %s: parsing...\n",incFileName.data());
       }
-      if (oldFileDef)
+
+      if (state->includeStack.empty() && oldFileDef)
       {
-        // add include dependency to the file in which the #include was found
-	bool ambig;
-	// change to absolute name for bug 641336 
-        FileDef *incFd = findFileDef(Doxygen::inputNameLinkedMap,absIncFileName,ambig);
-        oldFileDef->addIncludeDependency(ambig ? 0 : incFd,incFileName,localInclude,state->isImported,FALSE);
-        // add included by dependency
-        if (state->yyFileDef)
+        PreIncludeInfo *ii = state->includeRelations.find(absIncFileName);
+        if (ii==0)
         {
-          //printf("Adding include dependency %s->%s\n",oldFileDef->name().data(),incFileName.data());
-          state->yyFileDef->addIncludedByDependency(oldFileDef,oldFileDef->docName(),localInclude,state->isImported);
+          bool ambig;
+          FileDef *incFd = findFileDef(Doxygen::inputNameLinkedMap,absIncFileName,ambig);
+          state->includeRelations.add(
+              absIncFileName,
+              oldFileDef,
+              ambig?nullptr:incFd,
+              incFileName,
+              localInclude,
+              state->isImported
+              );
         }
       }
-      else if (state->inputFileDef)
-      {
-        state->inputFileDef->addIncludeDependency(0,absIncFileName,localInclude,state->isImported,TRUE);
-      }
+
       struct yyguts_t * yyg = (struct yyguts_t*)yyscanner;
       fs->bufState = YY_CURRENT_BUFFER;
       fs->lineNr   = oldLineNr;
@@ -2987,32 +2941,40 @@ static void readIncludeFile(yyscan_t yyscanner,const QCString &inc)
     }
     else
     {
-      //printf("  calling findFile(%s) alreadyInc=%d\n",incFileName.data(),alreadyIncluded);
-      if (oldFileDef)
+      if (alreadyProcessed) // if this header was already process we can just copy the stored macros
+                           // in the local context
       {
-	bool ambig;
+        std::lock_guard<std::mutex> lock(g_globalDefineMutex);
+        g_defineManager.addInclude(state->yyFileName.str(),absIncFileName.str());
+        g_defineManager.retrieve(absIncFileName.str(),state->contextDefines);
+      }
 
-	// change to absolute name for bug 641336 
-	FileDef *fd = findFileDef(Doxygen::inputNameLinkedMap,absIncFileName,ambig);
-	//printf("%s::findFileDef(%s)=%p\n",oldFileDef->name().data(),incFileName.data(),fd);
-	// add include dependency to the file in which the #include was found
-	oldFileDef->addIncludeDependency(ambig ? 0 : fd,incFileName,localInclude,state->isImported,FALSE);
-	// add included by dependency
-        if (fd)
+      if (state->includeStack.empty() && oldFileDef)
+      {
+        PreIncludeInfo *ii = state->includeRelations.find(absIncFileName);
+        if (ii==0)
         {
-          //printf("Adding include dependency (2) %s->%s ambig=%d\n",oldFileDef->name().data(),fd->name().data(),ambig);
-          fd->addIncludedByDependency(oldFileDef,oldFileDef->docName(),localInclude,state->isImported);
+          bool ambig;
+          FileDef *incFd = findFileDef(Doxygen::inputNameLinkedMap,absIncFileName,ambig);
+          ii = state->includeRelations.add(absIncFileName,
+              oldFileDef,
+              ambig?0:incFd,
+              incFileName,
+              localInclude,
+              state->isImported
+              );
         }
       }
-      else if (state->inputFileDef)
-      {
-        state->inputFileDef->addIncludeDependency(0,absIncFileName,localInclude,state->isImported,TRUE);
-      }
+
       if (Debug::isFlagSet(Debug::Preprocessor))
       {
-	if (alreadyIncluded)
+        for (i=0;i<state->includeStack.size();i++) 
+        {
+          Debug::print(Debug::Preprocessor,0,"  ");
+        }
+	if (alreadyProcessed)
 	{
-          Debug::print(Debug::Preprocessor,0,"#include %s: already included! skipping...\n",qPrint(incFileName));
+          Debug::print(Debug::Preprocessor,0,"#include %s: already processed! skipping...\n",qPrint(incFileName));
 	}
 	else
 	{
@@ -3020,7 +2982,7 @@ static void readIncludeFile(yyscan_t yyscanner,const QCString &inc)
 	}
         //printf("error: include file %s not found\n",yytext);
       }
-      if (state->curlyCount>0 && !alreadyIncluded) // failed to find #include inside { ... }
+      if (state->curlyCount>0 && !alreadyProcessed) // failed to find #include inside { ... }
       {
 	warn(state->yyFileName,state->yyLineNr,"include file %s not found, perhaps you forgot to add its directory to INCLUDE_PATH?",incFileName.data());
       }
@@ -3172,17 +3134,47 @@ static void unputChar(yyscan_t yyscanner,const QCString &expr,QCString *rest,uin
   //printf("result: unputChar(%s,%s,%d,%c)\n",expr.data(),rest ? rest->data() : 0,pos,c);
 }
 
+/** Returns a reference to a Define object given its name or 0 if the Define does
+ *  not exist.
+ */
+static Define *isDefined(yyscan_t yyscanner,const char *name)
+{
+  YY_EXTRA_TYPE state = preYYget_extra(yyscanner);
+
+  bool undef = false;
+  auto findDefine = [&undef,&name](DefineMap &map)
+  {
+    Define *d=0;
+    auto it = map.find(name);
+    if (it!=map.end())
+    {
+      d = &it->second;
+      if (d->undef)
+      {
+        undef=true;
+        d=0;
+      }
+    }
+    return d;
+  };
+
+  Define *def = findDefine(state->localDefines);
+  if (def==0 && !undef)
+  {
+    def = findDefine(state->contextDefines);
+  }
+  return def;
+}
+
 static void initPredefined(yyscan_t yyscanner,const char *fileName)
 {
   YY_EXTRA_TYPE state = preYYget_extra(yyscanner);
 
   // add predefined macros
-  char *defStr;
-  QStrList &predefList = Config_getList(PREDEFINED);
-  QStrListIterator sli(predefList);
-  for (sli.toFirst();(defStr=sli.current());++sli)
+  const StringVector &predefList = Config_getList(PREDEFINED);
+  for (const auto &defStr : predefList)
   {
-    QCString ds = defStr;
+    QCString ds = defStr.c_str();
     int i_equals=ds.find('=');
     int i_obrace=ds.find('(');
     int i_cbrace=ds.find(')');
@@ -3198,22 +3190,34 @@ static void initPredefined(yyscan_t yyscanner,const char *fileName)
         i_obrace<i_cbrace
        ) // predefined function macro definition
     {
-      //printf("predefined function macro '%s'\n",defStr);
-      QRegExp reId("[a-z_A-Z\x80-\xFF][a-z_A-Z0-9\x80-\xFF]*"); // regexp matching an id
+      bool varArgs = false;
+      int count = 0;
+      int i,pi,l;
       std::map<std::string,int> argMap;
-      int i=i_obrace+1,pi,l,count=0;
-      // gather the formal arguments in a dictionary 
-      while (i<i_cbrace && (pi=reId.match(ds,i,&l)))
+      QRegExp reId("[a-z_A-Z\x80-\xFF][a-z_A-Z0-9\x80-\xFF]*"); // regexp matching an id
+      if (ds.mid(i_obrace+1,i_cbrace-i_obrace-1)=="...")
       {
-        if (l>0) // see bug375037
+        varArgs = true;
+        argMap.emplace("__VA_ARGS__",count);
+        count++;
+      }
+      else
+      {
+        //printf("predefined function macro '%s'\n",qPrint(ds.mid(i_obrace+1,i_cbrace-i_obrace-1)));
+        i=i_obrace+1;
+        // gather the formal arguments in a dictionary 
+        while (i<i_cbrace && (pi=reId.match(ds,i,&l)))
         {
-          argMap.emplace(toStdString(ds.mid(pi,l)),count);
-          count++;
-          i=pi+l;
-        }
-        else
-        {
-          i++;
+          if (l>0) // see bug375037
+          {
+            argMap.emplace(toStdString(ds.mid(pi,l)),count);
+            count++;
+            i=pi+l;
+          }
+          else
+          {
+            i++;
+          }
         }
       }
       // strip definition part
@@ -3245,15 +3249,16 @@ static void initPredefined(yyscan_t yyscanner,const char *fileName)
       QCString dname = ds.left(i_obrace);
       if (!dname.isEmpty())
       {
-        std::unique_ptr<Define> def = std::make_unique<Define>();
-        def->name         = dname;
-        def->definition   = definition; 
-        def->nargs        = count;
-        def->isPredefined = TRUE;
-        def->nonRecursive = nonRecursive;
-        def->fileDef      = state->yyFileDef;
-        def->fileName     = fileName;
-        g_defineManager.addDefine(state->yyFileName,std::move(def));
+        Define def;
+        def.name         = dname;
+        def.definition   = definition;
+        def.nargs        = count;
+        def.isPredefined = TRUE;
+        def.nonRecursive = nonRecursive;
+        def.fileDef      = state->yyFileDef;
+        def.fileName     = fileName;
+        def.varArgs      = varArgs;
+        state->contextDefines.insert(std::make_pair(def.name.str(),def));
 
         //printf("#define '%s' '%s' #nargs=%d\n",
         //  def->name.data(),def->definition.data(),def->nargs);
@@ -3266,26 +3271,26 @@ static void initPredefined(yyscan_t yyscanner,const char *fileName)
         ) // predefined non-function macro definition
     {
       //printf("predefined normal macro '%s'\n",defStr);
-      std::unique_ptr<Define> def = std::make_unique<Define>();
+      Define def;
       if (i_equals==-1) // simple define without argument
       {
-        def->name = ds;
-        def->definition = "1"; // substitute occurrences by 1 (true)
+        def.name = ds;
+        def.definition = "1"; // substitute occurrences by 1 (true)
       }
       else // simple define with argument
       {
         int ine=i_equals - (nonRecursive ? 1 : 0);
-        def->name = ds.left(ine);
-        def->definition = ds.right(ds.length()-i_equals-1);
+        def.name = ds.left(ine);
+        def.definition = ds.right(ds.length()-i_equals-1);
       }
-      if (!def->name.isEmpty())
+      if (!def.name.isEmpty())
       {
-        def->nargs = -1;
-        def->isPredefined = TRUE;
-        def->nonRecursive = nonRecursive;
-        def->fileDef      = state->yyFileDef;
-        def->fileName     = fileName;
-        g_defineManager.addDefine(state->yyFileName,std::move(def));
+        def.nargs = -1;
+        def.isPredefined = TRUE;
+        def.nonRecursive = nonRecursive;
+        def.fileDef      = state->yyFileDef;
+        def.fileName     = fileName;
+        state->contextDefines.insert(std::make_pair(def.name.str(),def));
       }
     }
   }
@@ -3319,6 +3324,7 @@ Preprocessor::~Preprocessor()
 
 void Preprocessor::processFile(const char *fileName,BufStr &input,BufStr &output)
 {
+//  printf("Preprocessor::processFile(%s)\n",fileName);
   yyscan_t yyscanner = p->yyscanner;
   YY_EXTRA_TYPE state = preYYget_extra(p->yyscanner);
   struct yyguts_t *yyg = (struct yyguts_t*)p->yyscanner;
@@ -3342,12 +3348,13 @@ void Preprocessor::processFile(const char *fileName,BufStr &input,BufStr &output
   state->outputBuf=&output;
   state->includeStack.clear();
   state->expandedDict.clear();
+  state->contextDefines.clear();
   while (!state->condStack.empty()) state->condStack.pop();
-  //state->fileDefineDict->clear();
 
   setFileName(yyscanner,fileName);
+
   state->inputFileDef = state->yyFileDef;
-  g_defineManager.startContext(state->yyFileName);
+  //yyextra->defineManager.startContext(state->yyFileName);
   
   initPredefined(yyscanner,fileName);
  
@@ -3378,6 +3385,7 @@ void Preprocessor::processFile(const char *fileName,BufStr &input,BufStr &output
 
   if (Debug::isFlagSet(Debug::Preprocessor))
   {
+    std::lock_guard<std::mutex> lock(g_debugMutex);
     char *orgPos=output.data()+orgOffset;
     char *newPos=output.data()+output.curPos();
     Debug::print(Debug::Preprocessor,0,"Preprocessor output of %s (size: %d bytes):\n",fileName,newPos-orgPos);
@@ -3390,14 +3398,17 @@ void Preprocessor::processFile(const char *fileName,BufStr &input,BufStr &output
       orgPos++;
     }
     Debug::print(Debug::Preprocessor,0,"\n---------\n");
-    if (g_defineManager.defineContext().size()>0)
+    if (yyextra->contextDefines.size()>0)
     {
       Debug::print(Debug::Preprocessor,0,"Macros accessible in this file (%s):\n", fileName);
       Debug::print(Debug::Preprocessor,0,"---------\n");
-      for (auto &kv : g_defineManager.defineContext())
+      for (auto &kv : yyextra->contextDefines)
       {
-        Define *def = kv.second;
-        Debug::print(Debug::Preprocessor,0,"%s ",qPrint(def->name));
+        Debug::print(Debug::Preprocessor,0,"%s ",qPrint(kv.second.name));
+      }
+      for (auto &kv : yyextra->localDefines)
+      {
+        Debug::print(Debug::Preprocessor,0,"%s ",qPrint(kv.second.name));
       }
       Debug::print(Debug::Preprocessor,0,"\n---------\n");
     }
@@ -3406,8 +3417,27 @@ void Preprocessor::processFile(const char *fileName,BufStr &input,BufStr &output
       Debug::print(Debug::Preprocessor,0,"No macros accessible in this file (%s).\n", fileName);
     }
   }
-  g_defineManager.endContext();
+
+  {
+    std::lock_guard<std::mutex> lock(g_updateGlobals);
+    for (const auto &inc : state->includeRelations)
+    {
+      if (inc->fromFileDef)
+      {
+        inc->fromFileDef->addIncludeDependency(inc->toFileDef,inc->includeName,inc->local,inc->imported);
+      }
+      if (inc->toFileDef && inc->fromFileDef)
+      {
+        inc->toFileDef->addIncludedByDependency(inc->fromFileDef,inc->fromFileDef->docName(),inc->local,inc->imported);
+      }
+    }
+    // add the macro definition for this file to the global map
+    Doxygen::macroDefinitions.emplace(std::make_pair(state->yyFileName.str(),std::move(state->macroDefinitions)));
+  }
+
+  //yyextra->defineManager.endContext();
   printlex(yy_flex_debug, FALSE, __FILE__, fileName);
+//  printf("Preprocessor::processFile(%s) finished\n",fileName);
 }
 
 #if USE_STATE2STRING

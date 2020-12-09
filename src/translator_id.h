@@ -58,6 +58,11 @@ class TranslatorIndonesian : public TranslatorAdapter_1_8_0
       return "\\usepackage[bahasa]{babel}";
     }
 
+    virtual QCString trISOLang()
+    {
+      return "id";
+    }
+
     // --- Language translation methods -------------------
 
     /*! used in the compound documentation before a list of related functions. */
@@ -228,6 +233,10 @@ class TranslatorIndonesian : public TranslatorAdapter_1_8_0
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Berikut ini daftar struktur data, dengan penjelasan singkat:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Berikut ini daftar kelas, dengan penjelasan singkat:";
       }
       else
       {

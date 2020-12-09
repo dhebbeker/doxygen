@@ -29,10 +29,36 @@
 #include "definition.h"
 #include "docparser.h"
 #include "vhdldocgen.h"
+#include "doxygen.h"
 
-OutputList::OutputList(bool)
+static AtomicInt g_outId;
+
+OutputList::OutputList()
 {
+  newId();
   //printf("OutputList::OutputList()\n");
+}
+
+OutputList::OutputList(const OutputList &ol)
+{
+  m_id = ol.m_id;
+  for (const auto &og : ol.m_outputs)
+  {
+    m_outputs.emplace_back(og->clone());
+  }
+}
+
+OutputList &OutputList::operator=(const OutputList &ol)
+{
+  if (this!=&ol)
+  {
+    m_id = ol.m_id;
+    for (const auto &og : ol.m_outputs)
+    {
+      m_outputs.emplace_back(og->clone());
+    }
+  }
+  return *this;
 }
 
 OutputList::~OutputList()
@@ -40,9 +66,9 @@ OutputList::~OutputList()
   //printf("OutputList::~OutputList()\n");
 }
 
-void OutputList::add(OutputGenerator *og)
+void OutputList::newId()
 {
-  if (og) m_outputs.emplace_back(og);
+  m_id = ++g_outId;
 }
 
 void OutputList::disableAllBut(OutputGenerator::OutputType o)
@@ -115,7 +141,8 @@ void OutputList::generateDoc(const char *fileName,int startLine,
                   const Definition *ctx,const MemberDef * md,
                   const QCString &docStr,bool indexWords,
                   bool isExample,const char *exampleName,
-                  bool singleLine,bool linkFromIndex)
+                  bool singleLine,bool linkFromIndex,
+                  bool markdownSupport)
 {
   int count=0;
   if (docStr.isEmpty()) return;
@@ -132,18 +159,18 @@ void OutputList::generateDoc(const char *fileName,int startLine,
   DocRoot *root=0;
   root = validatingParseDoc(fileName,startLine,
                             ctx,md,docStr,indexWords,isExample,exampleName,
-                            singleLine,linkFromIndex);
-  if (count>0) writeDoc(root,ctx,md);
+                            singleLine,linkFromIndex,markdownSupport);
+  if (count>0) writeDoc(root,ctx,md,m_id);
   delete root;
 }
 
-void OutputList::writeDoc(DocRoot *root,const Definition *ctx,const MemberDef *md)
+void OutputList::writeDoc(DocRoot *root,const Definition *ctx,const MemberDef *md,int)
 {
   for (const auto &og : m_outputs)
   {
     //printf("og->printDoc(extension=%s)\n",
     //    ctx?ctx->getDefFileExtension().data():"<null>");
-    if (og->isEnabled()) og->writeDoc(root,ctx,md);
+    if (og->isEnabled()) og->writeDoc(root,ctx,md,m_id);
   }
   VhdlDocGen::setFlowMember(0);
 }
@@ -166,7 +193,7 @@ void OutputList::parseText(const QCString &textStr)
   {
     for (const auto &og : m_outputs)
     {
-      if (og->isEnabled()) og->writeDoc(root,0,0);
+      if (og->isEnabled()) og->writeDoc(root,0,0,m_id);
     }
   }
 

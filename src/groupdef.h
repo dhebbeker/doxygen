@@ -23,6 +23,7 @@
 #include "sortdict.h"
 #include "definition.h"
 #include "dirdef.h"
+#include "layout.h"
 
 class MemberList;
 class FileList;
@@ -43,7 +44,7 @@ class MemberDef;
 class FTextStream;
 
 /** A model of a group of symbols. */
-class GroupDef : virtual public Definition
+class GroupDef : public DefinitionMutable, public Definition
 {
   public:
    ~GroupDef() {}
@@ -107,6 +108,14 @@ class GroupDef : virtual public Definition
 
 GroupDef *createGroupDef(const char *fileName,int line,const char *name,
                                 const char *title,const char *refFileName=0);
+
+// --- Cast functions
+
+GroupDef            *toGroupDef(Definition *d);
+const GroupDef      *toGroupDef(const Definition *d);
+
+// ------------------
+
 
 /** A sorted dictionary of GroupDef objects. */
 class GroupSDict : public SDict<GroupDef>

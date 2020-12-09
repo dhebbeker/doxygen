@@ -130,6 +130,10 @@ class TranslatorFinnish : public TranslatorAdapter_1_6_0
       return "\\usepackage[finnish]{babel}\n";
     }
 
+    virtual QCString trISOLang()
+    {
+      return "fi";
+    }
     // --- Language translation methods -------------------
 
     /*! used in the compound documentation before a list of related functions. */
@@ -306,6 +310,11 @@ class TranslatorFinnish : public TranslatorAdapter_1_6_0
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Tässä ovat tietueet lyhyen selitteen kanssa:"; // "Here are the data structures with brief descriptions:"
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Tässä ovat luokat " // "Here are the classes
+             "lyhyen selitteen kanssa:"; // "with brief descriptions:"
       }
       else
       {

@@ -65,6 +65,10 @@ class TranslatorMacedonian : public TranslatorAdapter_1_6_0
     {
       return "\\usepackage[macedonian]{babel}\n";
     }
+    virtual QCString trISOLang()
+    {
+      return "mk";
+    }
 
     // --- Language translation methods -------------------
 
@@ -231,6 +235,10 @@ class TranslatorMacedonian : public TranslatorAdapter_1_6_0
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Список на структури со кратки описи:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Список на класи со кратки описи:";
       }
       else
       {
@@ -1718,6 +1726,7 @@ class TranslatorMacedonian : public TranslatorAdapter_1_6_0
     {
       return "Ограничувања на Тип";
     }
+
 };
 
 #endif

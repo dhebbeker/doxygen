@@ -1,6 +1,6 @@
 /******************************************************************************
 *
-* Copyright (C) 1997-2019 by Dimitri van Heesch.
+* Copyright (C) 1997-2020 by Dimitri van Heesch.
 *
 * Permission to use, copy, modify, and distribute this software and its
 * documentation under the terms of the GNU General Public License is hereby
@@ -20,10 +20,6 @@
 #include "config.h"
 #include "util.h"
 
-#define HIDE_SCOPE_NAMES      Config_getBool(HIDE_SCOPE_NAMES)
-#define DOT_GRAPH_MAX_NODES   Config_getInt(DOT_GRAPH_MAX_NODES)
-#define MAX_DOT_GRAPH_DEPTH   Config_getInt(MAX_DOT_GRAPH_DEPTH)
-
 static QCString getUniqueId(const MemberDef *md)
 {
   QCString result = md->getReference()+"$"+
@@ -34,51 +30,45 @@ static QCString getUniqueId(const MemberDef *md)
 
 void DotCallGraph::buildGraph(DotNode *n,const MemberDef *md,int distance)
 {
-  MemberSDict *refs = m_inverse ? md->getReferencedByMembers() : md->getReferencesMembers();
-  if (refs)
+  auto refs = m_inverse ? md->getReferencedByMembers() : md->getReferencesMembers();
+  for (const auto &rmd : refs)
   {
-    refs->sort();
-    MemberSDict::Iterator mri(*refs);
-    MemberDef *rmd;
-    for (;(rmd=mri.current());++mri)
+    if (rmd->showInCallGraph())
     {
-      if (rmd->showInCallGraph())
+      QCString uniqueId = getUniqueId(rmd);
+      DotNode *bn  = m_usedNodes->find(uniqueId);
+      if (bn) // file is already a node in the graph
       {
-        QCString uniqueId = getUniqueId(rmd);
-        DotNode *bn  = m_usedNodes->find(uniqueId);
-        if (bn) // file is already a node in the graph
+        n->addChild(bn,0,0,0);
+        bn->addParent(n);
+        bn->setDistance(distance);
+      }
+      else
+      {
+        QCString name;
+        if (Config_getBool(HIDE_SCOPE_NAMES))
         {
-          n->addChild(bn,0,0,0);
-          bn->addParent(n);
-          bn->setDistance(distance);
+          name  = rmd->getOuterScope()==m_scope ?
+            rmd->name() : rmd->qualifiedName();
         }
         else
         {
-          QCString name;
-          if (HIDE_SCOPE_NAMES)
-          {
-            name  = rmd->getOuterScope()==m_scope ? 
-              rmd->name() : rmd->qualifiedName();
-          }
-          else
-          {
-            name = rmd->qualifiedName();
-          }
-          QCString tooltip = rmd->briefDescriptionAsTooltip();
-          bn = new DotNode(
+          name = rmd->qualifiedName();
+        }
+        QCString tooltip = rmd->briefDescriptionAsTooltip();
+        bn = new DotNode(
             getNextNodeNumber(),
             linkToText(rmd->getLanguage(),name,FALSE),
             tooltip,
             uniqueId,
             0 //distance
-          );
-          n->addChild(bn,0,0,0);
-          bn->addParent(n);
-          bn->setDistance(distance);
-          m_usedNodes->insert(uniqueId,bn);
+            );
+        n->addChild(bn,0,0,0);
+        bn->addParent(n);
+        bn->setDistance(distance);
+        m_usedNodes->insert(uniqueId,bn);
 
-          buildGraph(bn,rmd,distance+1);
-        }
+        buildGraph(bn,rmd,distance+1);
       }
     }
   }
@@ -89,7 +79,7 @@ void DotCallGraph::determineVisibleNodes(QList<DotNode> &queue, int &maxNodes)
   while (queue.count()>0 && maxNodes>0)
   {
     DotNode *n = queue.take(0);
-    if (!n->isVisible() && n->distance()<=MAX_DOT_GRAPH_DEPTH) // not yet processed
+    if (!n->isVisible() && n->distance()<=Config_getInt(MAX_DOT_GRAPH_DEPTH)) // not yet processed
     {
       n->markAsVisible();
       maxNodes--;
@@ -121,9 +111,9 @@ void DotCallGraph::determineTruncatedNodes(QList<DotNode> &queue)
         const DotNode *dn;
         for (li.toFirst();(dn=li.current());++li)
         {
-          if (!dn->isVisible()) 
+          if (!dn->isVisible())
             truncated = TRUE;
-          else 
+          else
             queue.append(dn);
         }
       }
@@ -139,7 +129,7 @@ DotCallGraph::DotCallGraph(const MemberDef *md,bool inverse)
   m_scope    = md->getOuterScope();
   QCString uniqueId = getUniqueId(md);
   QCString name;
-  if (HIDE_SCOPE_NAMES)
+  if (Config_getBool(HIDE_SCOPE_NAMES))
   {
     name = md->name();
   }
@@ -159,7 +149,7 @@ DotCallGraph::DotCallGraph(const MemberDef *md,bool inverse)
   m_usedNodes->insert(uniqueId,m_startNode);
   buildGraph(m_startNode,md,1);
 
-  int maxNodes = DOT_GRAPH_MAX_NODES;
+  int maxNodes = Config_getInt(DOT_GRAPH_MAX_NODES);
   QList<DotNode> openNodeQueue;
   openNodeQueue.append(m_startNode);
   determineVisibleNodes(openNodeQueue,maxNodes);
@@ -198,7 +188,7 @@ QCString DotCallGraph::getMapLabel() const
 }
 
 QCString DotCallGraph::writeGraph(
-        FTextStream &out, 
+        FTextStream &out,
         GraphOutputFormat graphFormat,
         EmbeddedOutputFormat textFormat,
         const char *path,
@@ -216,7 +206,7 @@ bool DotCallGraph::isTrivial() const
 
 bool DotCallGraph::isTooBig() const
 {
-  return numNodes()>=DOT_GRAPH_MAX_NODES;
+  return numNodes()>=Config_getInt(DOT_GRAPH_MAX_NODES);
 }
 
 int DotCallGraph::numNodes() const

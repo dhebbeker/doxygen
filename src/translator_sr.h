@@ -58,6 +58,10 @@ class TranslatorSerbian : public TranslatorAdapter_1_6_0
       QCString result="\\usepackage[serbian]{babel}\n";
       return result;
     }
+    virtual QCString trISOLang()
+    {
+      return "sr-Latn";
+    }
 
     // --- Language translation methods -------------------
 
@@ -230,6 +234,10 @@ class TranslatorSerbian : public TranslatorAdapter_1_6_0
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Spisak struktura sa kratkim opisima:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Spisak klasa sa kratkim opisima:";
       }
       else
       {

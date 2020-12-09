@@ -67,10 +67,13 @@ Problem!
    Deprecated: nån hygglig svensk översättning???
 
    Skicka gärna synpunkter.
+
 2015/01/09
 * Uppdaterat den till senaste versionen 1.8.9.1
+
 2015/09/12
 * Fixat lite särksirvningar och inkonsekvenser
+
 2020/01/08
 * Uppdaterat den till senaste språkversionen 1.8.15
 
@@ -86,6 +89,11 @@ Changed Deprecated from Föråldrad to Obsolet
 
 The VHDL translations may not perfect, as I only used it once before.
 I left use clause untouched as I didn't find a suitable translation for it.
+
+2020/08/14
+* Uppdaterat översättningarna till 1.8.19
+English:
+* Updated the language translation to 1.8.19
 
 ===================================================================================
   Ordlista
@@ -167,6 +175,11 @@ class TranslatorSwedish : public Translator
     virtual QCString latexLanguageSupportCommand()
     {
       return "\\usepackage[swedish]{babel}\n";
+    }
+
+    virtual QCString trISOLang()
+    {
+      return "sv";
     }
 
     // --- Language translation methods -------------------
@@ -339,6 +352,10 @@ class TranslatorSwedish : public Translator
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Här följer datastrukturerna med korta beskrivningar:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Här följer klasserna med korta beskrivningar:";
       }
       else
       {
@@ -1975,7 +1992,7 @@ class TranslatorSwedish : public Translator
      */
     virtual QCString trPanelSynchronisationTooltip(bool enable)
     {
-      QCString opt = enable ? "aktivera" : "inaktivera"; 
+      QCString opt = enable ? "aktivera" : "inaktivera";
       return "klicka för att "+opt+" panelsynkronisering";
     }
 
@@ -2018,14 +2035,6 @@ class TranslatorSwedish : public Translator
     virtual QCString trMethodDocumentation()
     {
       return "Metoddokumentation";
-    }
-
-    /*! Used as the title of the design overview picture created for the
-     *  VHDL output.
-     */
-    virtual QCString trDesignOverview()
-    {
-      return "Designöversikt";
     }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2097,9 +2106,9 @@ class TranslatorSwedish : public Translator
     /** VHDL design unit members */
     virtual QCString trDesignUnitMembers()
     { return "Designenhetsmedlemmar"; }
-    /** VHDL design unit list description 
-     * Orginal: Here is a list of all design unit members with links to 
-     *          the Entities they belong to: 
+    /** VHDL design unit list description
+     * Orginal: Here is a list of all design unit members with links to
+     *          the Entities they belong to:
      */
     virtual QCString trDesignUnitListDescription()
     {
@@ -2336,6 +2345,14 @@ class TranslatorSwedish : public Translator
     {
         return "Datamedlemsdokumentation";
     }
-};
 
+//////////////////////////////////////////////////////////////////////////
+// new since 1.8.19
+//////////////////////////////////////////////////////////////////////////
+
+    /** VHDL design unit documentation */
+    virtual QCString trDesignUnitDocumentation()
+    { return "Designenhetsdokumentation"; }
+
+};
 #endif

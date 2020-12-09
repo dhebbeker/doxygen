@@ -95,6 +95,10 @@ class TranslatorVietnamese : public TranslatorAdapter_1_6_0
       }
       return latex_command;
     }
+    virtual QCString trISOLang()
+    {
+      return "vi";
+    }
     // --- Language translation methods -------------------
 
     /*! used in the compound documentation before a list of related functions. */
@@ -265,6 +269,10 @@ class TranslatorVietnamese : public TranslatorAdapter_1_6_0
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Đây là cấu trúc cơ sở dữ liệu với mô tả tóm tắt:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Đây là các classes với các mô tả tóm tắt:";
       }
       else
       {

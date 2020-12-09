@@ -119,6 +119,11 @@ class TranslatorDanish : public TranslatorAdapter_1_8_0
 	"\\usepackage[danish]{babel}\n";
     }
 
+    virtual QCString trISOLang()
+    {
+      return "da";
+    }
+
     // --- Language translation methods -------------------
 
     /*! used in the compound documentation before a list of related functions. */
@@ -279,6 +284,8 @@ class TranslatorDanish : public TranslatorAdapter_1_8_0
 
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C)) {
         return "Her er datastrukturerne med korte beskrivelser:";
+      } else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE)) {
+        return "Her er klasserne med korte beskrivelser:";
       } else {
         return "Her er klasserne, datastrukturerne, "
                "unionerne og grænsefladerne med korte beskrivelser:";
@@ -1764,6 +1771,7 @@ class TranslatorDanish : public TranslatorAdapter_1_8_0
     {
       return QCString("Afhængighedsgraf for katalog ")+name+":";
     }
+
 
 
 /*---------- For internal use: ----------------------------------------*/

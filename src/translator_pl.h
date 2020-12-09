@@ -54,6 +54,11 @@ class TranslatorPolish : public TranslatorAdapter_1_8_2
                                          */
     }
 
+    virtual QCString trISOLang()
+    {
+      return "pl";
+    }
+
     // --- Language translation methods -------------------
 
     /*! used in the compound documentation before a list of related functions. */
@@ -228,6 +233,10 @@ class TranslatorPolish : public TranslatorAdapter_1_8_2
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Tutaj znajdują się struktury danych wraz z ich krótkimi opisami:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Tutaj znajdują się klasy wraz z ich krótkimi opisami:";
       }
       else
       {
@@ -1865,8 +1874,6 @@ class TranslatorPolish : public TranslatorAdapter_1_8_2
      */
     virtual QCString trAdditionalInheritedMembers()
     { return "Dodatkowe Dziedziczone Składowe"; }
-
-//////////////////////////////////////////////////////////////////////////
 
 };
 

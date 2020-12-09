@@ -62,6 +62,8 @@ class XRefDummyCodeGenerator : public CodeOutputInterface
     void writeCodeAnchor(const char *) {}
     void setCurrentDoc(const Definition *,const char *,bool) {}
     void addWord(const char *,bool) {}
+    void startCodeFragment(const char *) {}
+    void endCodeFragment(const char *) {}
 
     // here we are presented with the symbols found by the code parser
     void linkableSymbol(int l, const char *sym,Definition *symDef,Definition *context)
@@ -109,19 +111,19 @@ class XRefDummyCodeGenerator : public CodeOutputInterface
 static void findXRefSymbols(FileDef *fd)
 {
   // get the interface to a parser that matches the file extension
-  CodeParserInterface &intf=Doxygen::parserManager->getCodeParser(fd->getDefFileExtension());
+  auto intf=Doxygen::parserManager->getCodeParser(fd->getDefFileExtension());
 
   // get the programming language from the file name
   SrcLangExt lang = getLanguageFromFileName(fd->name());
 
   // reset the parsers state
-  intf.resetCodeParserState();
+  intf->resetCodeParserState();
 
   // create a new backend object
   XRefDummyCodeGenerator *xrefGen = new XRefDummyCodeGenerator(fd);
 
   // parse the source code
-  intf.parseCode(*xrefGen,
+  intf->parseCode(*xrefGen,
                 0,
                 fileToString(fd->absFilePath()),
                 lang,
@@ -146,25 +148,9 @@ static void listSymbol(Definition *d)
 
 static void listSymbols()
 {
-  QDictIterator<DefinitionIntf> sli(*Doxygen::symbolMap);
-  DefinitionIntf *di;
-  for (sli.toFirst();(di=sli.current());++sli)
+  for (const auto &kv : Doxygen::symbolMap)
   {
-    if (di->definitionType()==DefinitionIntf::TypeSymbolList) // list of symbols
-      // with same name
-    {
-      DefinitionListIterator dli(*(DefinitionList*)di);
-      Definition *d;
-      // for each symbol
-      for (dli.toFirst();(d=dli.current());++dli)
-      {
-        listSymbol(d);
-      }
-    }
-    else // single symbol
-    {
-      listSymbol((Definition*)di);
-    }
+    listSymbol(kv.second);
   }
 }
 
@@ -221,25 +207,14 @@ static void lookupSymbols(const QCString &sym)
 {
   if (!sym.isEmpty())
   {
-    DefinitionIntf *di = Doxygen::symbolMap->find(sym);
-    if (di)
+    auto range = Doxygen::symbolMap.find(sym);
+    bool found=false;
+    for (auto it=range.first; it!=range.second; ++it)
     {
-      if (di->definitionType()==DefinitionIntf::TypeSymbolList)
-      {
-        DefinitionListIterator dli(*(DefinitionList*)di);
-        Definition *d;
-        // for each symbol with the given name
-        for (dli.toFirst();(d=dli.current());++dli)
-        {
-          lookupSymbol(d);
-        }
-      }
-      else
-      {
-        lookupSymbol((Definition*)di);
-      }
+      lookupSymbol(it->second);
+      found=true;
     }
-    else
+    if (!found)
     {
       printf("Unknown symbol\n");
     }
@@ -264,31 +239,32 @@ int main(int argc,char **argv)
   checkConfiguration();
   adjustConfiguration();
   // we need a place to put intermediate files
-  Config_getString(OUTPUT_DIRECTORY)="/tmp/doxygen";
+  Config_updateString(OUTPUT_DIRECTORY,"/tmp/doxygen");
   // disable html output
-  Config_getBool(GENERATE_HTML)=FALSE;
+  Config_updateBool(GENERATE_HTML,FALSE);
   // disable latex output
-  Config_getBool(GENERATE_LATEX)=FALSE;
+  Config_updateBool(GENERATE_LATEX,FALSE);
   // be quiet
-  Config_getBool(QUIET)=TRUE;
+  Config_updateBool(QUIET,TRUE);
   // turn off warnings
-  Config_getBool(WARNINGS)=FALSE;
-  Config_getBool(WARN_IF_UNDOCUMENTED)=FALSE;
-  Config_getBool(WARN_IF_DOC_ERROR)=FALSE;
+  Config_updateBool(WARNINGS,FALSE);
+  Config_updateBool(WARN_IF_UNDOCUMENTED,FALSE);
+  Config_updateBool(WARN_IF_DOC_ERROR,FALSE);
   // Extract as much as possible
-  Config_getBool(EXTRACT_ALL)=TRUE;
-  Config_getBool(EXTRACT_STATIC)=TRUE;
-  Config_getBool(EXTRACT_PRIVATE)=TRUE;
-  Config_getBool(EXTRACT_LOCAL_METHODS)=TRUE;
+  Config_updateBool(EXTRACT_ALL,TRUE);
+  Config_updateBool(EXTRACT_STATIC,TRUE);
+  Config_updateBool(EXTRACT_PRIVATE,TRUE);
+  Config_updateBool(EXTRACT_LOCAL_METHODS,TRUE);
   // Extract source browse information, needed
   // to make doxygen gather the cross reference info
-  Config_getBool(SOURCE_BROWSER)=TRUE;
+  Config_updateBool(SOURCE_BROWSER,TRUE);
   // In case of a directory take all files on directory and its subdirectories
-  Config_getBool(RECURSIVE)=TRUE;
+  Config_updateBool(RECURSIVE,TRUE);
 
   // set the input
-  Config_getList(INPUT).clear();
-  Config_getList(INPUT).append(argv[1]);
+  StringVector inputList;
+  inputList.push_back(argv[1]);
+  Config_updateList(INPUT,inputList);
 
   // parse the files
   parseInput();

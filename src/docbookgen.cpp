@@ -89,7 +89,7 @@ inline void writeDocbookCodeString(FTextStream &t,const char *s, int &col)
     {
       case '\t':
         {
-          static int tabSize = Config_getInt(TAB_SIZE);
+          int tabSize = Config_getInt(TAB_SIZE);
           int spacesToNextTabStop = tabSize - (col%tabSize);
           col+=spacesToNextTabStop;
           while (spacesToNextTabStop--) t << "&#32;";
@@ -101,9 +101,21 @@ inline void writeDocbookCodeString(FTextStream &t,const char *s, int &col)
       case '&':  t << "&amp;"; col++;  break;
       case '\'': t << "&apos;"; col++; break;
       case '"':  t << "&quot;"; col++; break;
-      case '\007':  t << "^G"; col++; break; // bell
-      case '\014':  t << "^L"; col++; break; // form feed
-      default:   t << c; col++;        break;
+      default:
+        {
+          uchar uc = static_cast<uchar>(c);
+          static const char *hex="0123456789ABCDEF";
+          if (uc<32)
+          {
+            t << "&#x24" << hex[uc>>4] << hex[uc&0xF] << ";";
+          }
+          else
+          {
+            t << c;
+          }
+          col++;
+        }
+        break;
     }
   }
 }
@@ -140,7 +152,6 @@ DocbookCodeGenerator::DocbookCodeGenerator(FTextStream &t)
 
 DocbookCodeGenerator::DocbookCodeGenerator()
 {
-  m_prettyCode=Config_getBool(DOCBOOK_PROGRAMLISTING);
 }
 
 DocbookCodeGenerator::~DocbookCodeGenerator() {}
@@ -243,37 +254,41 @@ void DocbookCodeGenerator::finish()
 {
   endCodeLine();
 }
-void DocbookCodeGenerator::startCodeFragment()
+void DocbookCodeGenerator::startCodeFragment(const char *)
 {
-  m_t << "<literallayout><computeroutput>" << endl;
+DB_GEN_C
+  m_t << "<programlisting>";
 }
-void DocbookCodeGenerator::endCodeFragment()
+
+void DocbookCodeGenerator::endCodeFragment(const char *)
 {
+DB_GEN_C
   //endCodeLine checks is there is still an open code line, if so closes it.
   endCodeLine();
 
-  m_t << "</computeroutput></literallayout>" << endl;
+  m_t << "</programlisting>";
 }
 
-DocbookGenerator::DocbookGenerator() : OutputGenerator()
+//-------------------------------------------------------------------------------
+
+DocbookGenerator::DocbookGenerator() : OutputGenerator(Config_getString(DOCBOOK_OUTPUT))
 {
 DB_GEN_C
-  m_dir=Config_getString(DOCBOOK_OUTPUT);
-  //insideTabbing=FALSE;
-  //firstDescItem=TRUE;
-  //disableLinks=FALSE;
-  //m_indent=0;
-  //templateMemberItem = FALSE;
-  m_prettyCode=Config_getBool(DOCBOOK_PROGRAMLISTING);
-  m_denseText = FALSE;
-  m_inGroup = FALSE;
-  m_inDetail = FALSE;
-  m_levelListItem = 0;
-  m_descTable = FALSE;
-  m_inLevel = -1;
-  m_firstMember = FALSE;
-  for (size_t i = 0 ; i < sizeof(m_inListItem) / sizeof(*m_inListItem) ; i++) m_inListItem[i] = FALSE;
-  for (size_t i = 0 ; i < sizeof(m_inSimpleSect) / sizeof(*m_inSimpleSect) ; i++) m_inSimpleSect[i] = FALSE;
+}
+
+DocbookGenerator::DocbookGenerator(const DocbookGenerator &og) : OutputGenerator(og)
+{
+}
+
+DocbookGenerator &DocbookGenerator::operator=(const DocbookGenerator &og)
+{
+  OutputGenerator::operator=(og);
+  return *this;
+}
+
+std::unique_ptr<OutputGenerator> DocbookGenerator::clone() const
+{
+  return std::make_unique<DocbookGenerator>(*this);
 }
 
 DocbookGenerator::~DocbookGenerator()
@@ -293,7 +308,7 @@ void DocbookGenerator::init()
   createSubDirs(d);
 }
 
-void DocbookGenerator::startFile(const char *name,const char *,const char *)
+void DocbookGenerator::startFile(const char *name,const char *,const char *,int)
 {
 DB_GEN_C
   QCString fileName=name;
@@ -320,6 +335,7 @@ DB_GEN_C
   t << "<?xml version='1.0' encoding='UTF-8' standalone='no'?>" << endl;;
   t << "<" << fileType << " xmlns=\"http://docbook.org/ns/docbook\" version=\"5.0\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"";
   if (!pageName.isEmpty()) t << " xml:id=\"_" <<  stripPath(pageName) << "\"";
+  t << " xml:lang=\"" << theTranslator->trISOLang() << "\"";
   t << ">" << endl;
 }
 
@@ -427,7 +443,7 @@ DB_GEN_C2("IndexSections " << is)
 void DocbookGenerator::endIndexSection(IndexSections is)
 {
 DB_GEN_C2("IndexSections " << is)
-  static bool sourceBrowser = Config_getBool(SOURCE_BROWSER);
+  bool sourceBrowser = Config_getBool(SOURCE_BROWSER);
   switch (is)
   {
     case isTitlePageStart:
@@ -521,7 +537,7 @@ DB_GEN_C2("IndexSections " << is)
         bool found=FALSE;
         for (nli.toFirst();(nd=nli.current()) && !found;++nli)
         {
-          if (nd->isLinkableInProject())
+          if (nd->isLinkableInProject() && !nd->isAlias())
           {
             t << "<xi:include href=\"" << nd->getOutputFileBase() << ".xml\" xmlns:xi=\"http://www.w3.org/2001/XInclude\"/>" << endl;
             found=TRUE;
@@ -529,7 +545,7 @@ DB_GEN_C2("IndexSections " << is)
         }
         while ((nd=nli.current()))
         {
-          if (nd->isLinkableInProject())
+          if (nd->isLinkableInProject() && !nd->isAlias())
           {
             t << "<xi:include href=\"" << nd->getOutputFileBase() << ".xml\" xmlns:xi=\"http://www.w3.org/2001/XInclude\"/>" << endl;
           }
@@ -548,7 +564,8 @@ DB_GEN_C2("IndexSections " << is)
         {
           if (cd->isLinkableInProject() &&
               cd->templateMaster()==0 &&
-             !cd->isEmbeddedInOuterScope()
+             !cd->isEmbeddedInOuterScope() &&
+             !cd->isAlias()
              )
           {
             t << "    <xi:include href=\"" << cd->getOutputFileBase() << ".xml\" xmlns:xi=\"http://www.w3.org/2001/XInclude\"/>" << endl;
@@ -559,7 +576,8 @@ DB_GEN_C2("IndexSections " << is)
         {
           if (cd->isLinkableInProject() &&
               cd->templateMaster()==0 &&
-             !cd->isEmbeddedInOuterScope()
+             !cd->isEmbeddedInOuterScope() &&
+             !cd->isAlias()
              )
           {
             t << "    <xi:include href=\"" << cd->getOutputFileBase() << ".xml\" xmlns:xi=\"http://www.w3.org/2001/XInclude\"/>" << endl;
@@ -650,7 +668,7 @@ DB_GEN_C
   }
 }
 
-void DocbookGenerator::writeDoc(DocNode *n,const Definition *,const MemberDef *)
+void DocbookGenerator::writeDoc(DocNode *n,const Definition *,const MemberDef *,int)
 {
 DB_GEN_C
   DocbookDocVisitor *visitor =
@@ -733,12 +751,12 @@ void DocbookGenerator::endMemberItem()
 DB_GEN_C
   t << "</para>" << endl;
 }
-void DocbookGenerator::startBold(void)
+void DocbookGenerator::startBold()
 {
 DB_GEN_C
   t << "<emphasis role=\"strong\">";
 }
-void DocbookGenerator::endBold(void)
+void DocbookGenerator::endBold()
 {
 DB_GEN_C
   t << "</emphasis>";
@@ -756,7 +774,7 @@ DB_GEN_C2("extraIndentLevel " << extraIndentLevel)
   t << "<section>" << endl;
   t << "<title>";
 }
-void DocbookGenerator::writeRuler(void)
+void DocbookGenerator::writeRuler()
 {
 DB_GEN_C2("m_inLevel " << m_inLevel)
 DB_GEN_C2("m_inGroup " << m_inGroup)
@@ -912,7 +930,7 @@ DB_GEN_C
   t << "                <imagedata width=\"50%\" align=\"center\" valign=\"middle\" scalefit=\"0\" fileref=\""
                          << relPath << fileName << ".png\">" << "</imagedata>" << endl;
   t << "            </imageobject>" << endl;
-  d.writeImage(t,m_dir,relPath,fileName,FALSE);
+  d.writeImage(t,dir(),relPath,fileName,FALSE);
   t << "        </mediaobject>" << endl;
   t << "    </informalfigure>" << endl;
   t << "</para>" << endl;
@@ -946,12 +964,12 @@ void DocbookGenerator::endExamples()
 DB_GEN_C
   t << "</simplesect>" << endl;
 }
-void DocbookGenerator::startSubsubsection(void)
+void DocbookGenerator::startSubsubsection()
 {
 DB_GEN_C
   t << "<simplesect><title>";
 }
-void DocbookGenerator::endSubsubsection(void)
+void DocbookGenerator::endSubsubsection()
 {
 DB_GEN_C
   t << "</title></simplesect>" << endl;
@@ -995,19 +1013,6 @@ DB_GEN_C
   {
     if (closeBracket) t << ")";
   }
-}
-void DocbookGenerator::startCodeFragment()
-{
-DB_GEN_C
-    t << "<programlisting>";
-}
-void DocbookGenerator::endCodeFragment()
-{
-DB_GEN_C
-  //endCodeLine checks is there is still an open code line, if so closes it.
-  endCodeLine();
-
-    t << "</programlisting>";
 }
 void DocbookGenerator::startMemberTemplateParams()
 {
@@ -1103,7 +1108,7 @@ DB_GEN_C
 void DocbookGenerator::endGroupCollaboration(DotGroupCollaboration &g)
 {
 DB_GEN_C
-  g.writeGraph(t,GOF_BITMAP,EOF_DocBook,Config_getString(DOCBOOK_OUTPUT),m_fileName,relPath,FALSE);
+  g.writeGraph(t,GOF_BITMAP,EOF_DocBook,dir(),fileName(),relPath,FALSE);
 }
 void DocbookGenerator::startDotGraph()
 {
@@ -1112,7 +1117,7 @@ DB_GEN_C
 void DocbookGenerator::endDotGraph(DotClassGraph &g)
 {
 DB_GEN_C
-  g.writeGraph(t,GOF_BITMAP,EOF_DocBook,Config_getString(DOCBOOK_OUTPUT),m_fileName,relPath,TRUE,FALSE);
+  g.writeGraph(t,GOF_BITMAP,EOF_DocBook,dir(),fileName(),relPath,TRUE,FALSE);
 }
 void DocbookGenerator::startInclDepGraph()
 {
@@ -1121,7 +1126,7 @@ DB_GEN_C
 void DocbookGenerator::endInclDepGraph(DotInclDepGraph &g)
 {
 DB_GEN_C
-  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_DocBook,Config_getString(DOCBOOK_OUTPUT), m_fileName,relPath,FALSE);
+  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_DocBook,dir(),fileName(),relPath,FALSE);
 }
 void DocbookGenerator::startCallGraph()
 {
@@ -1130,7 +1135,7 @@ DB_GEN_C
 void DocbookGenerator::endCallGraph(DotCallGraph &g)
 {
 DB_GEN_C
-  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_DocBook,Config_getString(DOCBOOK_OUTPUT), m_fileName,relPath,FALSE);
+  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_DocBook,dir(),fileName(),relPath,FALSE);
 }
 void DocbookGenerator::startDirDepGraph()
 {
@@ -1139,7 +1144,7 @@ DB_GEN_C
 void DocbookGenerator::endDirDepGraph(DotDirDeps &g)
 {
 DB_GEN_C
-  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_DocBook,Config_getString(DOCBOOK_OUTPUT), m_fileName,relPath,FALSE);
+  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_DocBook,dir(),fileName(),relPath,FALSE);
 }
 void DocbookGenerator::startMemberDocList()
 {

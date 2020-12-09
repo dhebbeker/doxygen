@@ -80,6 +80,11 @@ class TranslatorLatvian : public TranslatorAdapter_1_8_4
              "\\usepackage[latvian]{babel}\n";
     }
 
+    virtual QCString trISOLang()
+    {
+      return "lv";
+    }
+
     // --- Language translation methods -------------------
 
     /*! used in the compound documentation before a list of related functions. */
@@ -250,6 +255,10 @@ class TranslatorLatvian : public TranslatorAdapter_1_8_4
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Šeit ir visas datu struktūras ar īsu aprakstu:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Šeit ir visas klases ar īsu aprakstu:";
       }
       else
       {
@@ -1943,8 +1952,6 @@ class TranslatorLatvian : public TranslatorAdapter_1_8_4
     {
       return "Dizaina pārskats";
     }
-
-//////////////////////////////////////////////////////////////////////////
 
 };
 

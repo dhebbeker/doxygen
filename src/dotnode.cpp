@@ -87,7 +87,7 @@ static const char *umlEdgeStyleMap[] =
   "solid"          // usage
 };
 
-static EdgeProperties normalEdgeProps = 
+static EdgeProperties normalEdgeProps =
 {
   normalEdgeColorMap, normalArrowStyleMap, normalEdgeStyleMap
 };
@@ -96,6 +96,30 @@ static EdgeProperties umlEdgeProps =
 {
   umlEdgeColorMap, umlArrowStyleMap, umlEdgeStyleMap
 };
+
+// Extracted from config setting "DOT_UML_DETAILS"
+enum class UmlDetailLevel
+{
+  Default, // == NO, the default setting
+  Full,    // == YES, include type and arguments
+  None     // == NONE, don't include compartments for attributes and methods
+};
+
+// Local helper function for extracting the configured detail level
+static UmlDetailLevel getUmlDetailLevelFromConfig()
+{
+  UmlDetailLevel result = UmlDetailLevel::Default;
+  QCString umlDetailsStr = Config_getEnum(DOT_UML_DETAILS).upper();
+  if (umlDetailsStr == "YES")
+  {
+    result=UmlDetailLevel::Full;
+  }
+  else if (umlDetailsStr == "NONE")
+  {
+    result=UmlDetailLevel::None;
+  }
+  return result;
+} 
 
 static QCString escapeTooltip(const QCString &tooltip)
 {
@@ -117,9 +141,8 @@ static QCString escapeTooltip(const QCString &tooltip)
 
 static void writeBoxMemberList(FTextStream &t,
   char prot,MemberList *ml,const ClassDef *scope,
-  bool isStatic=FALSE,const QDict<void> *skipNames=0)
+  bool isStatic=FALSE,const StringUnorderedSet *skipNames=nullptr)
 {
-  (void)isStatic;
   if (ml)
   {
     MemberListIterator mlia(*ml);
@@ -127,8 +150,8 @@ static void writeBoxMemberList(FTextStream &t,
     int totalCount=0;
     for (mlia.toFirst();(mma = mlia.current());++mlia)
     {
-      if (mma->getClassDef()==scope && 
-        (skipNames==0 || skipNames->find(mma->name())==0))
+      if (mma->getClassDef()==scope &&
+        (skipNames==nullptr || skipNames->find(mma->name().str())==std::end(*skipNames)))
       {
         totalCount++;
       }
@@ -138,7 +161,7 @@ static void writeBoxMemberList(FTextStream &t,
     for (mlia.toFirst();(mma = mlia.current());++mlia)
     {
       if (mma->getClassDef() == scope &&
-        (skipNames==0 || skipNames->find(mma->name())==0))
+        (skipNames==nullptr || skipNames->find(mma->name().str())==std::end(*skipNames)))
       {
         int numFields = Config_getInt(UML_LIMIT_NUM_FIELDS);
         if (numFields>0 && (totalCount>numFields*3/2 && count>=numFields))
@@ -149,9 +172,25 @@ static void writeBoxMemberList(FTextStream &t,
         else
         {
           t << prot << " ";
-          t << DotNode::convertLabel(mma->name());
-          if (!mma->isObjCMethod() && 
-            (mma->isFunction() || mma->isSlot() || mma->isSignal())) t << "()";
+          QCString label;
+          if(getUmlDetailLevelFromConfig()==UmlDetailLevel::Full)
+          {
+            label+=mma->typeString();
+            label+=" ";
+          }
+          label+=mma->name();
+          if (!mma->isObjCMethod() && (mma->isFunction() || mma->isSlot() || mma->isSignal()))
+          {
+            if(getUmlDetailLevelFromConfig()==UmlDetailLevel::Full)
+            {
+              label+=mma->argsString();
+            }
+            else
+            {
+              label+="()";
+            }
+          }
+          t << DotNode::convertLabel(label);
           t << "\\l";
           count++;
         }
@@ -186,7 +225,7 @@ QCString DotNode::convertLabel(const QCString &l)
   int len=p.length();
   int charsLeft=len;
   int sinceLast=0;
-  int foldLen=17; // ideal text length
+  int foldLen = Config_getInt(DOT_WRAP_THRESHOLD); // ideal text length
   while (idx < p.length())
   {
     c = p[idx++];
@@ -218,7 +257,7 @@ QCString DotNode::convertLabel(const QCString &l)
       foldLen = (foldLen+sinceLast+1)/2;
       sinceLast=1;
     }
-    else if (charsLeft>1+foldLen/4 && sinceLast>foldLen+foldLen/3 && 
+    else if (charsLeft>1+foldLen/4 && sinceLast>foldLen+foldLen/3 &&
       !isupper(c) && isupper(p[idx]))
     {
       result+=replacement;
@@ -385,9 +424,9 @@ void DotNode::writeBox(FTextStream &t,
 
   if (m_classDef && Config_getBool(UML_LOOK) && (gt==Inheritance || gt==Collaboration))
   {
-    // add names shown as relations to a dictionary, so we don't show
+    // add names shown as relations to a set, so we don't show
     // them as attributes as well
-    QDict<void> arrowNames(17);
+    StringUnorderedSet arrowNames;
     if (m_edgeInfo)
     {
       // for each edge
@@ -403,55 +442,58 @@ void DotNode::writeBox(FTextStream &t,
           while ((i=ei->label().find('\n',p))!=-1)
           {
             lab = stripProtectionPrefix(ei->label().mid(p,i-p));
-            arrowNames.insert(lab,(void*)0x8);
+            arrowNames.insert(lab.str());
             p=i+1;
           }
           lab = stripProtectionPrefix(ei->label().right(ei->label().length()-p));
-          arrowNames.insert(lab,(void*)0x8);
+          arrowNames.insert(lab.str());
         }
       }
     }
 
     //printf("DotNode::writeBox for %s\n",m_classDef->name().data());
-    t << "{" << convertLabel(m_label);
-    t << "\\n|";
-    writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_pubAttribs),m_classDef,FALSE,&arrowNames);
-    writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_pubStaticAttribs),m_classDef,TRUE,&arrowNames);
-    writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_properties),m_classDef,FALSE,&arrowNames);
-    writeBoxMemberList(t,'~',m_classDef->getMemberList(MemberListType_pacAttribs),m_classDef,FALSE,&arrowNames);
-    writeBoxMemberList(t,'~',m_classDef->getMemberList(MemberListType_pacStaticAttribs),m_classDef,TRUE,&arrowNames);
-    writeBoxMemberList(t,'#',m_classDef->getMemberList(MemberListType_proAttribs),m_classDef,FALSE,&arrowNames);
-    writeBoxMemberList(t,'#',m_classDef->getMemberList(MemberListType_proStaticAttribs),m_classDef,TRUE,&arrowNames);
-    if (Config_getBool(EXTRACT_PRIVATE))
+    t << "{" << convertLabel(m_label) << "\\n";
+    if (getUmlDetailLevelFromConfig()!=UmlDetailLevel::None)
     {
-      writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priAttribs),m_classDef,FALSE,&arrowNames);
-      writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priStaticAttribs),m_classDef,TRUE,&arrowNames);
-    }
-    t << "|";
-    writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_pubMethods),m_classDef);
-    writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_pubStaticMethods),m_classDef,TRUE);
-    writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_pubSlots),m_classDef);
-    writeBoxMemberList(t,'~',m_classDef->getMemberList(MemberListType_pacMethods),m_classDef);
-    writeBoxMemberList(t,'~',m_classDef->getMemberList(MemberListType_pacStaticMethods),m_classDef,TRUE);
-    writeBoxMemberList(t,'#',m_classDef->getMemberList(MemberListType_proMethods),m_classDef);
-    writeBoxMemberList(t,'#',m_classDef->getMemberList(MemberListType_proStaticMethods),m_classDef,TRUE);
-    writeBoxMemberList(t,'#',m_classDef->getMemberList(MemberListType_proSlots),m_classDef);
-    if (Config_getBool(EXTRACT_PRIVATE))
-    {
-      writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priMethods),m_classDef);
-      writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priStaticMethods),m_classDef,TRUE);
-      writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priSlots),m_classDef);
-    }
-    if (m_classDef->getLanguage()!=SrcLangExt_Fortran &&
-      m_classDef->getMemberGroupSDict())
-    {
-      MemberGroupSDict::Iterator mgdi(*m_classDef->getMemberGroupSDict());
-      MemberGroup *mg;
-      for (mgdi.toFirst();(mg=mgdi.current());++mgdi)
+      t << "|";
+      writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_pubAttribs),m_classDef,FALSE,&arrowNames);
+      writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_pubStaticAttribs),m_classDef,TRUE,&arrowNames);
+      writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_properties),m_classDef,FALSE,&arrowNames);
+      writeBoxMemberList(t,'~',m_classDef->getMemberList(MemberListType_pacAttribs),m_classDef,FALSE,&arrowNames);
+      writeBoxMemberList(t,'~',m_classDef->getMemberList(MemberListType_pacStaticAttribs),m_classDef,TRUE,&arrowNames);
+      writeBoxMemberList(t,'#',m_classDef->getMemberList(MemberListType_proAttribs),m_classDef,FALSE,&arrowNames);
+      writeBoxMemberList(t,'#',m_classDef->getMemberList(MemberListType_proStaticAttribs),m_classDef,TRUE,&arrowNames);
+      if (Config_getBool(EXTRACT_PRIVATE))
       {
-        if (mg->members())
+        writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priAttribs),m_classDef,FALSE,&arrowNames);
+        writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priStaticAttribs),m_classDef,TRUE,&arrowNames);
+      }
+      t << "|";
+      writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_pubMethods),m_classDef);
+      writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_pubStaticMethods),m_classDef,TRUE);
+      writeBoxMemberList(t,'+',m_classDef->getMemberList(MemberListType_pubSlots),m_classDef);
+      writeBoxMemberList(t,'~',m_classDef->getMemberList(MemberListType_pacMethods),m_classDef);
+      writeBoxMemberList(t,'~',m_classDef->getMemberList(MemberListType_pacStaticMethods),m_classDef,TRUE);
+      writeBoxMemberList(t,'#',m_classDef->getMemberList(MemberListType_proMethods),m_classDef);
+      writeBoxMemberList(t,'#',m_classDef->getMemberList(MemberListType_proStaticMethods),m_classDef,TRUE);
+      writeBoxMemberList(t,'#',m_classDef->getMemberList(MemberListType_proSlots),m_classDef);
+      if (Config_getBool(EXTRACT_PRIVATE))
+      {
+        writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priMethods),m_classDef);
+        writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priStaticMethods),m_classDef,TRUE);
+        writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priSlots),m_classDef);
+      }
+      if (m_classDef->getLanguage()!=SrcLangExt_Fortran &&
+        m_classDef->getMemberGroupSDict())
+      {
+        MemberGroupSDict::Iterator mgdi(*m_classDef->getMemberGroupSDict());
+        MemberGroup *mg;
+        for (mgdi.toFirst();(mg=mgdi.current());++mgdi)
         {
-          writeBoxMemberList(t,'*',mg->members(),m_classDef,FALSE,&arrowNames);
+          if (mg->members())
+          {
+            writeBoxMemberList(t,'*',mg->members(),m_classDef,FALSE,&arrowNames);
+          }
         }
       }
     }
@@ -500,7 +542,7 @@ void DotNode::writeBox(FTextStream &t,
   {
     t << ",tooltip=\" \""; // space in tooltip is required otherwise still something like 'Node0' is used
   }
-  t << "];" << endl; 
+  t << "];" << endl;
 }
 
 void DotNode::writeArrow(FTextStream &t,
@@ -536,20 +578,20 @@ void DotNode::writeArrow(FTextStream &t,
     t << ",label=\" " << convertLabel(ei->label()) << "\" ";
   }
   if (Config_getBool(UML_LOOK) &&
-    eProps->arrowStyleMap[ei->color()] && 
+    eProps->arrowStyleMap[ei->color()] &&
     (gt==Inheritance || gt==Collaboration)
     )
   {
     bool rev = pointBack;
     if (umlUseArrow) rev=!rev; // UML use relates has arrow on the start side
-    if (rev) 
-      t << ",arrowtail=\"" << eProps->arrowStyleMap[ei->color()] << "\""; 
-    else 
+    if (rev)
+      t << ",arrowtail=\"" << eProps->arrowStyleMap[ei->color()] << "\"";
+    else
       t << ",arrowhead=\"" << eProps->arrowStyleMap[ei->color()] << "\"";
   }
 
   if (format==GOF_BITMAP) t << ",fontname=\"" << Config_getString(DOT_FONTNAME) << "\"";
-  t << "];" << endl; 
+  t << "];" << endl;
 }
 
 void DotNode::write(FTextStream &t,
@@ -564,7 +606,7 @@ void DotNode::write(FTextStream &t,
   if (!m_visible) return; // node is not visible
   writeBox(t,gt,format,m_truncated==Truncated);
   m_written=TRUE;
-  QList<DotNode> *nl = toChildren ? m_children : m_parents; 
+  QList<DotNode> *nl = toChildren ? m_children : m_parents;
   if (nl)
   {
     if (toChildren)
@@ -671,7 +713,7 @@ void DotNode::writeXML(FTextStream &t,bool isClassGraph) const
           << "</edgelabel>" << endl;
       }
       t << "        </childnode>" << endl;
-    } 
+    }
   }
   t << "      </node>" << endl;
 }
@@ -841,7 +883,7 @@ void DotNode::clearWriteFlag()
 }
 
 void DotNode::colorConnectedNodes(int curColor)
-{ 
+{
   if (m_children)
   {
     QListIterator<DotNode> dnlic(*m_children);

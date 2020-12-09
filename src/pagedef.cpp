@@ -3,8 +3,8 @@
  * Copyright (C) 1997-2015 by Dimitri van Heesch.
  *
  * Permission to use, copy, modify, and distribute this software and its
- * documentation under the terms of the GNU General Public License is hereby 
- * granted. No representations are made about the suitability of this software 
+ * documentation under the terms of the GNU General Public License is hereby
+ * granted. No representations are made about the suitability of this software
  * for any purpose. It is provided "as is" without express or implied warranty.
  * See the GNU General Public License for more details.
  *
@@ -29,7 +29,7 @@
 
 //------------------------------------------------------------------------------------------
 
-class PageDefImpl : public DefinitionImpl, public PageDef
+class PageDefImpl : public DefinitionMixin<PageDef>
 {
   public:
     PageDefImpl(const char *f,int l,const char *n,const char *d,const char *t);
@@ -56,7 +56,7 @@ class PageDefImpl : public DefinitionImpl, public PageDef
     virtual LocalToc localToc() const { return m_localToc; }
     virtual void setPageScope(Definition *d){ m_pageScope = d; }
     virtual Definition *getPageScope() const { return m_pageScope; }
-    virtual QCString displayName(bool=TRUE) const { return hasTitle() ? m_title : DefinitionImpl::name(); }
+    virtual QCString displayName(bool=TRUE) const { return hasTitle() ? m_title : DefinitionMixin::name(); }
     virtual bool showLineNo() const;
     virtual void writeDocumentation(OutputList &ol);
     virtual void writeTagFile(FTextStream &);
@@ -82,7 +82,7 @@ PageDef *createPageDef(const char *f,int l,const char *n,const char *d,const cha
 
 PageDefImpl::PageDefImpl(const char *f,int l,const char *n,
                  const char *d,const char *t)
- : DefinitionImpl(f,l,1,n), m_title(t)
+ : DefinitionMixin(f,l,1,n), m_title(t)
 {
   setDocumentation(d,f,l);
   m_subPageDict = new PageSDict(7);
@@ -99,21 +99,22 @@ PageDefImpl::~PageDefImpl()
 
 void PageDefImpl::findSectionsInDocumentation()
 {
+  docFindSections(briefDescription(),this,docFile());
   docFindSections(documentation(),this,docFile());
 }
 
-GroupDef *PageDefImpl::getGroupDef() const 
-{ 
+GroupDef *PageDefImpl::getGroupDef() const
+{
   GroupList *groups = partOfGroups();
-  return groups!=0 ? groups->getFirst() : 0; 
+  return groups!=0 ? groups->getFirst() : 0;
 }
 
-QCString PageDefImpl::getOutputFileBase() const 
-{ 
-  if (getGroupDef()) 
+QCString PageDefImpl::getOutputFileBase() const
+{
+  if (getGroupDef())
     return getGroupDef()->getOutputFileBase();
-  else 
-    return m_fileName; 
+  else
+    return m_fileName;
 }
 
 void PageDefImpl::setFileName(const char *name)
@@ -121,28 +122,30 @@ void PageDefImpl::setFileName(const char *name)
   m_fileName = name;
 }
 
-void PageDefImpl::addInnerCompound(const Definition *const_def)
+void PageDefImpl::addInnerCompound(const Definition *def)
 {
-  if (const_def->definitionType()==Definition::TypePage)
+  if (def->definitionType()==Definition::TypePage)
   {
-    Definition *def = const_cast<Definition*>(const_def); // uck: fix me
-    PageDef *pd = dynamic_cast<PageDef*>(def);
-    m_subPageDict->append(pd->name(),pd);
-    def->setOuterScope(this);
-    if (this==Doxygen::mainPage)
+    PageDef *pd = const_cast<PageDef*>(toPageDef(def));
+    if (pd)
     {
-      pd->setNestingLevel(m_nestingLevel);
-    }
-    else
-    {
-      pd->setNestingLevel(m_nestingLevel+1);
+      m_subPageDict->append(pd->name(),pd);
+      pd->setOuterScope(this);
+      if (this==Doxygen::mainPage)
+      {
+        pd->setNestingLevel(m_nestingLevel);
+      }
+      else
+      {
+        pd->setNestingLevel(m_nestingLevel+1);
+      }
     }
   }
 }
 
 bool PageDefImpl::hasParentPage() const
 {
-  return getOuterScope() && 
+  return getOuterScope() &&
          getOuterScope()->definitionType()==Definition::TypePage;
 }
 
@@ -180,9 +183,9 @@ void PageDefImpl::writeDocumentation(OutputList &ol)
   //printf("PageDefImpl::writeDocumentation: %s\n",getOutputFileBase().data());
 
   ol.pushGeneratorState();
-  //1.{ 
+  //1.{
 
-  if (m_nestingLevel>0 
+  if (m_nestingLevel>0
       //&& // a sub page
       //(Doxygen::mainPage==0 || getOuterScope()!=Doxygen::mainPage) // and not a subpage of the mainpage
      )
@@ -195,20 +198,24 @@ void PageDefImpl::writeDocumentation(OutputList &ol)
   }
 
   ol.pushGeneratorState();
-  //2.{ 
+  //2.{
   ol.disableAllBut(OutputGenerator::Man);
   startFile(ol,getOutputFileBase(),manPageName,title(),HLI_Pages,!generateTreeView);
   ol.enableAll();
   ol.disable(OutputGenerator::Man);
   startFile(ol,getOutputFileBase(),pageName,title(),HLI_Pages,!generateTreeView);
   ol.popGeneratorState();
-  //2.} 
+  //2.}
 
   if (!generateTreeView)
   {
     if (getOuterScope()!=Doxygen::globalScope && !Config_getBool(DISABLE_INDEX))
     {
-      getOuterScope()->writeNavigationPath(ol);
+      DefinitionMutable *outerScope = toDefinitionMutable(getOuterScope());
+      if (outerScope)
+      {
+        outerScope->writeNavigationPath(ol);
+      }
     }
     ol.endQuickIndices();
   }
@@ -229,7 +236,8 @@ void PageDefImpl::writeDocumentation(OutputList &ol)
 
     if (si->title() != manPageName)
     {
-      ol.generateDoc(docFile(),docLine(),this,0,si->title(),TRUE,FALSE,0,TRUE,FALSE);
+      ol.generateDoc(docFile(),getStartBodyLine(),this,0,si->title(),TRUE,FALSE,
+                     0,TRUE,FALSE,Config_getBool(MARKDOWN_SUPPORT));
       ol.endSection(si->label(),si->type());
     }
   }
@@ -248,7 +256,8 @@ void PageDefImpl::writeDocumentation(OutputList &ol)
     ol.startPageDoc(si->title());
     //ol.startSection(si->label,si->title,si->type);
     startTitle(ol,getOutputFileBase(),this);
-    ol.generateDoc(docFile(),docLine(),this,0,si->title(),TRUE,FALSE,0,TRUE,FALSE);
+    ol.generateDoc(docFile(),getStartBodyLine(),this,0,si->title(),TRUE,FALSE,
+                   0,TRUE,FALSE,Config_getBool(MARKDOWN_SUPPORT));
     //stringToSearchIndex(getOutputFileBase(),
     //                    theTranslator->trPage(TRUE,TRUE)+" "+si->title,
     //                    si->title);
@@ -287,13 +296,6 @@ void PageDefImpl::writeDocumentation(OutputList &ol)
 
 void PageDefImpl::writePageDocumentation(OutputList &ol)
 {
-
-  bool markdownEnabled = Doxygen::markdownSupport;
-  if (getLanguage()==SrcLangExt_Markdown)
-  {
-    Doxygen::markdownSupport = TRUE;
-  }
-
   ol.startTextBlock();
   QCString docStr = documentation()+inbodyDocumentation();
   if (hasBriefDescription() && !SectionManager::instance().find(name()))
@@ -310,11 +312,13 @@ void PageDefImpl::writePageDocumentation(OutputList &ol)
       0,                   // memberdef
       docStr,              // docStr
       TRUE,                // index words
-      FALSE                // not an example
+      FALSE,               // not an example
+      0,                   // exampleName
+      FALSE,               // singleLine
+      FALSE,               // linkFromIndex
+      TRUE                 // markdown support
       );
   ol.endTextBlock();
-
-  Doxygen::markdownSupport = markdownEnabled;
 
   if (hasSubPages())
   {
@@ -357,16 +361,16 @@ bool PageDefImpl::visibleInIndex() const
 {
   static bool externalPages = Config_getBool(EXTERNAL_PAGES);
   return // not part of a group
-         !getGroupDef() && 
+         !getGroupDef() &&
          // not an externally defined page
-         (!isReference() || externalPages) 
+         (!isReference() || externalPages)
          ;
 }
 
 bool PageDefImpl::documentedPage() const
 {
    return // not part of a group
-          !getGroupDef() && 
+          !getGroupDef() &&
           // not an externally defined page
           !isReference();
 }
@@ -399,5 +403,33 @@ bool PageDefImpl::showLineNo() const
 bool PageDefImpl::hasTitle() const
 {
   return !m_title.isEmpty() && m_title.lower()!="notitle";
+}
+
+// --- Cast functions
+
+PageDef *toPageDef(Definition *d)
+{
+  if (d==0) return 0;
+  if (d && typeid(*d)==typeid(PageDefImpl))
+  {
+    return static_cast<PageDef*>(d);
+  }
+  else
+  {
+    return 0;
+  }
+}
+
+const PageDef *toPageDef(const Definition *d)
+{
+  if (d==0) return 0;
+  if (d && typeid(*d)==typeid(PageDefImpl))
+  {
+    return static_cast<const PageDef*>(d);
+  }
+  else
+  {
+    return 0;
+  }
 }
 

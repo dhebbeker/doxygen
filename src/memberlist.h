@@ -1,12 +1,10 @@
 /******************************************************************************
  *
- * 
- *
- * Copyright (C) 1997-2015 by Dimitri van Heesch.
+ * Copyright (C) 1997-2020 by Dimitri van Heesch.
  *
  * Permission to use, copy, modify, and distribute this software and its
- * documentation under the terms of the GNU General Public License is hereby 
- * granted. No representations are made about the suitability of this software 
+ * documentation under the terms of the GNU General Public License is hereby
+ * granted. No representations are made about the suitability of this software
  * for any purpose. It is provided "as is" without express or implied warranty.
  * See the GNU General Public License for more details.
  *
@@ -81,7 +79,7 @@ class MemberList : private QList<MemberDef>
                bool showEnumValues=FALSE,bool showInline=FALSE) const;
     void writeSimpleDocumentation(OutputList &ol,const Definition *container) const;
     void writeDocumentationPage(OutputList &ol,
-               const char *scopeName, const Definition *container) const;
+               const char *scopeName, const DefinitionMutable *container) const;
     void writeTagFile(FTextStream &);
     bool declVisible() const;
     void addMemberGroup(MemberGroup *mg);
@@ -92,6 +90,7 @@ class MemberList : private QList<MemberDef>
     void setNeedsSorting(bool b);
     MemberGroupList *getMemberGroupList() const { return memberGroupList; }
     void setAnonymousEnumType();
+    void setAnchors();
 
   private:
     int compareValues(const MemberDef *item1,const MemberDef *item2) const;
@@ -105,7 +104,7 @@ class MemberList : private QList<MemberDef>
     int m_dictCnt;
     int m_protoCnt;
     int m_defCnt;
-    int m_friendCnt; 
+    int m_friendCnt;
     */
     int m_numDecMembers; // number of members in the brief part of the memberlist
     int m_numDecEnumValues;
@@ -145,5 +144,6 @@ class MemberSDict : public SDict<MemberDef>
     int compareValues(const MemberDef *item1,const MemberDef *item2) const;
 };
 
+int genericCompareMembers(const MemberDef *c1,const MemberDef *c2);
 
 #endif

@@ -1,20 +1,24 @@
 # vim:ts=4:sw=4:expandtab:autoindent:
 
 include_directories(
-    ${CMAKE_SOURCE_DIR}/qtools
-    ${CMAKE_SOURCE_DIR}/libmd5
-    ${CMAKE_SOURCE_DIR}/liblodepng
-    ${CMAKE_SOURCE_DIR}/libmscgen
-    ${CMAKE_SOURCE_DIR}/libversion
-    ${CMAKE_SOURCE_DIR}/vhdlparser
-    ${CMAKE_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/qtools
+    ${PROJECT_SOURCE_DIR}/libmd5
+    ${PROJECT_SOURCE_DIR}/liblodepng
+    ${PROJECT_SOURCE_DIR}/libmscgen
+    ${PROJECT_SOURCE_DIR}/libversion
+    ${PROJECT_SOURCE_DIR}/vhdlparser
+    ${PROJECT_SOURCE_DIR}/src
     ${CLANG_INCLUDEDIR}
     ${GENERATED_SRC}
 )
 
 
 file(MAKE_DIRECTORY ${GENERATED_SRC})
-file(GLOB LANGUAGE_FILES "${CMAKE_SOURCE_DIR}/src/translator_??.h")
+if (${CMAKE_VERSION} VERSION_EQUAL "3.11.0" OR ${CMAKE_VERSION} VERSION_GREATER "3.11.0")
+    file(GLOB LANGUAGE_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/translator_??.h")
+else()
+    file(GLOB LANGUAGE_FILES "${CMAKE_CURRENT_LIST_DIR}/translator_??.h")
+endif()
 
 # instead of increasebuffer.py
 add_definitions(-DYY_BUF_SIZE=${enlarge_lex_buffers} -DYY_READ_BUF_SIZE=${enlarge_lex_buffers})
@@ -35,8 +39,8 @@ set_source_files_properties(${GENERATED_SRC}/settings.h PROPERTIES GENERATED 1)
 
 # configvalues.h
 add_custom_command(
-    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/src/configgen.py -maph ${CMAKE_SOURCE_DIR}/src/config.xml > ${GENERATED_SRC}/configvalues.h
-    DEPENDS ${CMAKE_SOURCE_DIR}/src/config.xml ${CMAKE_SOURCE_DIR}/src/configgen.py
+    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/configgen.py -maph ${CMAKE_CURRENT_LIST_DIR}/config.xml > ${GENERATED_SRC}/configvalues.h
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/config.xml ${CMAKE_CURRENT_LIST_DIR}/configgen.py
     OUTPUT ${GENERATED_SRC}/configvalues.h
 )
 set_source_files_properties(${GENERATED_SRC}/configvalues.h PROPERTIES GENERATED 1)
@@ -47,16 +51,16 @@ add_custom_target(
 
 # configvalues.cpp
 add_custom_command(
-    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/src/configgen.py -maps ${CMAKE_SOURCE_DIR}/src/config.xml > ${GENERATED_SRC}/configvalues.cpp
-    DEPENDS ${CMAKE_SOURCE_DIR}/src/config.xml ${CMAKE_SOURCE_DIR}/src/configgen.py
+    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/configgen.py -maps ${CMAKE_CURRENT_LIST_DIR}/config.xml > ${GENERATED_SRC}/configvalues.cpp
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/config.xml ${CMAKE_CURRENT_LIST_DIR}/configgen.py
     OUTPUT ${GENERATED_SRC}/configvalues.cpp
 )
 set_source_files_properties(${GENERATED_SRC}/configvalues.cpp PROPERTIES GENERATED 1)
 
 # configoptions.cpp
 add_custom_command(
-    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/src/configgen.py -cpp ${CMAKE_SOURCE_DIR}/src/config.xml > ${GENERATED_SRC}/configoptions.cpp
-    DEPENDS ${CMAKE_SOURCE_DIR}/src/config.xml ${CMAKE_SOURCE_DIR}/src/configgen.py
+    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/configgen.py -cpp ${CMAKE_CURRENT_LIST_DIR}/config.xml > ${GENERATED_SRC}/configoptions.cpp
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/config.xml ${CMAKE_CURRENT_LIST_DIR}/configgen.py
     OUTPUT ${GENERATED_SRC}/configoptions.cpp
 )
 set_source_files_properties(${GENERATED_SRC}/configoptions.cpp PROPERTIES GENERATED 1)
@@ -64,8 +68,8 @@ set_source_files_properties(${GENERATED_SRC}/configoptions.cpp PROPERTIES GENERA
 
 # ce_parse.h
 add_custom_command(
-    COMMAND ${BISON_EXECUTABLE} -l -d -p ce_parsexpYY ${CMAKE_SOURCE_DIR}/src/constexp.y -o ce_parse.c
-    DEPENDS ${CMAKE_SOURCE_DIR}/src/constexp.y
+    COMMAND ${BISON_EXECUTABLE} -l -d -p ce_parsexpYY ${CMAKE_CURRENT_LIST_DIR}/constexp.y -o ce_parse.c
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/constexp.y
     OUTPUT ${GENERATED_SRC}/ce_parse.h
     WORKING_DIRECTORY ${GENERATED_SRC}
 )
@@ -74,28 +78,32 @@ set_source_files_properties(${GENERATED_SRC}/ce_parse.h PROPERTIES GENERATED 1)
 # lang_cfg.h
 add_custom_command(
     COMMENT  "Generating ${GENERATED_SRC}/lang_cfg.h"
-    COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/lang_cfg.cmake ${GENERATED_SRC}/lang_cfg.h ${LANG_CODES}
+    COMMAND ${CMAKE_COMMAND} -P ${PROJECT_SOURCE_DIR}/cmake/lang_cfg.cmake ${GENERATED_SRC}/lang_cfg.h ${LANG_CODES}
     DEPENDS ${LANGUAGE_FILES}
     OUTPUT ${GENERATED_SRC}/lang_cfg.h
 )
 set_source_files_properties(${GENERATED_SRC}/lang_cfg.h PROPERTIES GENERATED 1)
 
 # all resource files
-file(GLOB RESOURCES ${CMAKE_SOURCE_DIR}/templates/*/*)
+if (${CMAKE_VERSION} VERSION_EQUAL "3.11.0" OR ${CMAKE_VERSION} VERSION_GREATER "3.11.0")
+    file(GLOB RESOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/templates/*/*)
+else()
+    file(GLOB RESOURCES ${PROJECT_SOURCE_DIR}/templates/*/*)
+endif()
 
 # resources.cpp
 add_custom_command(
     COMMENT  "Generating ${GENERATED_SRC}/resources.cpp"
-    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/src/res2cc_cmd.py ${CMAKE_SOURCE_DIR}/templates ${GENERATED_SRC}/resources.cpp
-    DEPENDS ${RESOURCES}
+    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/res2cc_cmd.py ${PROJECT_SOURCE_DIR}/templates ${GENERATED_SRC}/resources.cpp
+    DEPENDS ${RESOURCES} ${CMAKE_CURRENT_LIST_DIR}/res2cc_cmd.py
     OUTPUT ${GENERATED_SRC}/resources.cpp
 )
 set_source_files_properties(${GENERATED_SRC}/resources.cpp PROPERTIES GENERATED 1)
 
 # layout_default.xml
 add_custom_command(
-    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/src/to_c_cmd.py < ${CMAKE_SOURCE_DIR}/src/layout_default.xml > ${GENERATED_SRC}/layout_default.xml.h
-    DEPENDS ${CMAKE_SOURCE_DIR}/src/layout_default.xml
+    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/to_c_cmd.py < ${CMAKE_CURRENT_LIST_DIR}/layout_default.xml > ${GENERATED_SRC}/layout_default.xml.h
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/layout_default.xml ${CMAKE_CURRENT_LIST_DIR}/to_c_cmd.py
     OUTPUT  ${GENERATED_SRC}/layout_default.xml.h
 )
 set_source_files_properties(${GENERATED_SRC}/layout_default.xml.h PROPERTIES GENERATED 1)
@@ -123,17 +131,35 @@ foreach(lex_file ${LEX_FILES})
     set(LEX_FILES_H ${LEX_FILES_H} " " ${GENERATED_SRC}/${lex_file}.l.h CACHE INTERNAL "Stores generated files")
     set(LEX_FILES_CPP ${LEX_FILES_CPP} " " ${GENERATED_SRC}/${lex_file}.cpp CACHE INTERNAL "Stores generated files")
     add_custom_command(
-        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/src/scan_states.py ${CMAKE_SOURCE_DIR}/src/${lex_file}.l > ${GENERATED_SRC}/${lex_file}.l.h
-        DEPENDS ${CMAKE_SOURCE_DIR}/src/scan_states.py ${CMAKE_SOURCE_DIR}/src/${lex_file}.l
+        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/scan_states.py ${CMAKE_CURRENT_LIST_DIR}/${lex_file}.l > ${GENERATED_SRC}/${lex_file}.l.h
+        DEPENDS ${CMAKE_CURRENT_LIST_DIR}/scan_states.py ${CMAKE_CURRENT_LIST_DIR}/${lex_file}.l
         OUTPUT  ${GENERATED_SRC}/${lex_file}.l.h
     )
     set_source_files_properties(${GENERATED_SRC}/${lex_file}.l.h PROPERTIES GENERATED 1)
+    # for code coverage we need the flex sources in the build src directory
+    add_custom_command(
+        COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/src/${lex_file}.l ${PROJECT_BINARY_DIR}/src/${lex_file}.l
+        DEPENDS ${PROJECT_SOURCE_DIR}/src/${lex_file}.l
+        OUTPUT  ${PROJECT_BINARY_DIR}/src/${lex_file}.l
+    )
 
-    FLEX_TARGET(${lex_file}        ${lex_file}.l        ${GENERATED_SRC}/${lex_file}.cpp        COMPILE_FLAGS "${LEX_FLAGS}")
+    FLEX_TARGET(${lex_file}
+                ${CMAKE_CURRENT_LIST_DIR}/${lex_file}.l
+                ${GENERATED_SRC}/${lex_file}.cpp
+                COMPILE_FLAGS "${LEX_FLAGS}")
 endforeach()
 
 
-BISON_TARGET(constexp      constexp.y       ${GENERATED_SRC}/ce_parse.cpp       COMPILE_FLAGS "${YACC_FLAGS}")
+BISON_TARGET(constexp
+             ${CMAKE_CURRENT_LIST_DIR}/constexp.y
+             ${GENERATED_SRC}/ce_parse.cpp
+             COMPILE_FLAGS "${YACC_FLAGS}")
+
+add_custom_command(
+    COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/src/constexp.y ${PROJECT_BINARY_DIR}/src
+    DEPENDS ${PROJECT_SOURCE_DIR}/src/constexp.y
+    OUTPUT  ${PROJECT_BINARY_DIR}/src/constexp.y
+)
 
 add_library(doxycfg STATIC
     ${GENERATED_SRC}/lang_cfg.h
@@ -142,18 +168,23 @@ add_library(doxycfg STATIC
     ${GENERATED_SRC}/configimpl.l.h
     ${GENERATED_SRC}/configoptions.cpp
     ${GENERATED_SRC}/configvalues.cpp
+    ${GENERATED_SRC}/settings.h
     portable.cpp
     portable_c.c
+    ftextstream.cpp
+    message.cpp
+    debug.cpp
 )
+add_sanitizers(doxycfg)
 
-add_library(_doxygen STATIC
+add_library(doxymain STATIC
     # generated for/by flex/bison
     #${LEX_FILES_H} #unfortunately doesn't work in older versions of CMake (like 3.6.2)
     #${LEX_FILES_CPP} #unfortunately doesn't work in older versions of CMake (like 3.6.2)
     ${GENERATED_SRC}/code.l.h
     ${GENERATED_SRC}/commentcnv.l.h
     ${GENERATED_SRC}/commentscan.l.h
-    ${GENERATED_SRC}/configimpl.l.h
+    ${GENERATED_SRC}/constexp.cpp
     ${GENERATED_SRC}/constexp.l.h
     ${GENERATED_SRC}/declinfo.l.h
     ${GENERATED_SRC}/defargs.l.h
@@ -170,8 +201,6 @@ add_library(_doxygen STATIC
     ${GENERATED_SRC}/code.cpp
     ${GENERATED_SRC}/commentcnv.cpp
     ${GENERATED_SRC}/commentscan.cpp
-    ${GENERATED_SRC}/configimpl.cpp
-    ${GENERATED_SRC}/constexp.cpp
     ${GENERATED_SRC}/declinfo.cpp
     ${GENERATED_SRC}/defargs.cpp
     ${GENERATED_SRC}/doctokenizer.cpp
@@ -188,10 +217,8 @@ add_library(_doxygen STATIC
     ${GENERATED_SRC}/ce_parse.cpp
     # custom generated files
     ${GENERATED_SRC}/lang_cfg.h
-    ${GENERATED_SRC}/settings.h
     ${GENERATED_SRC}/layout_default.xml.h
     ${GENERATED_SRC}/ce_parse.h
-    ${GENERATED_SRC}/configvalues.h
     ${GENERATED_SRC}/resources.cpp
     #
     arguments.cpp
@@ -203,9 +230,7 @@ add_library(_doxygen STATIC
     condparser.cpp
     context.cpp
     cppvalue.cpp
-    debug.cpp
     defgen.cpp
-    define.cpp
     definition.cpp
     dia.cpp
     diagram.cpp
@@ -215,6 +240,7 @@ add_library(_doxygen STATIC
     docgroup.cpp
     docparser.cpp
     docsets.cpp
+    docvisitor.cpp
     dot.cpp
     dotcallgraph.cpp
     dotclassgraph.cpp
@@ -234,7 +260,6 @@ add_library(_doxygen STATIC
     filedef.cpp
     fileparser.cpp
     formula.cpp
-    ftextstream.cpp
     ftvhelp.cpp
     groupdef.cpp
     htags.cpp
@@ -254,7 +279,6 @@ add_library(_doxygen STATIC
     memberdef.cpp
     membergroup.cpp
     memberlist.cpp
-    message.cpp
     msc.cpp
     namespacedef.cpp
     outputgen.cpp
@@ -272,6 +296,7 @@ add_library(_doxygen STATIC
     searchindex.cpp
     sqlite3gen.cpp
     stlsupport.cpp
+    symbolresolver.cpp
     tagreader.cpp
     template.cpp
     textdocvisitor.cpp
@@ -282,6 +307,7 @@ add_library(_doxygen STATIC
     xmldocvisitor.cpp
     xmlgen.cpp
 )
+add_sanitizers(doxymain)
 
 # LLVM/clang headers give a lot of warnings with -Wshadow and -Wcast-align so we disable them for
 # the one file that includes them
@@ -291,34 +317,38 @@ set_source_files_properties(clangparser.cpp PROPERTIES COMPILE_FLAGS "-Wno-shado
 endif()
 
 ##foreach(lex_file ${LEX_FILES})
-##add_library(_doxygen STATIC ${GENERATED_SRC}/${lex_file}.l.h)
+##add_library(doxymain STATIC ${GENERATED_SRC}/${lex_file}.l.h)
 ##endforeach()
 
-add_executable(doxygen main.cpp)
-
+add_executable(doxygen
+    main.cpp
+)
+add_sanitizers(doxygen)
 
 if (use_libclang)
     find_package(LLVM REQUIRED CONFIG)
     find_package(Clang REQUIRED CONFIG)
     if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-        cmake_minimum_required(VERSION 3.1)
-        target_compile_features(_doxygen PRIVATE cxx_alignof)
+        target_compile_features(doxymain PRIVATE cxx_alignof)
         target_compile_features(doxygen PRIVATE cxx_alignof)
-        target_compile_options(_doxygen PRIVATE -stdlib=libc++)
-        target_compile_options(doxygen PRIVATE -stdlib=libc++)
-    elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        target_compile_options(_doxygen PRIVATE -std=c++11)
-        target_compile_options(doxygen PRIVATE -std=c++11)
+        if (use_libc++)
+            target_compile_options(doxymain PRIVATE -stdlib=libc++)
+            target_compile_options(doxygen PRIVATE -stdlib=libc++)
+        endif()
     endif()
     include_directories(${LLVM_INCLUDE_DIRS})
     add_definitions(${LLVM_DEFINITIONS})
-    llvm_map_components_to_libnames(llvm_libs support core option)
+    if (static_libclang)
+        set(CLANG_LIBS libclang clangTooling)
+    else() # dynamically linked version of clang
+        llvm_config(doxymain USE_SHARED support)
+        set(CLANG_LIBS libclang clang-cpp)
+    endif()
     target_compile_definitions(doxygen PRIVATE ${LLVM_DEFINITIONS})
-    set(CLANG_LIBS libclang clangTooling ${llvm_libs})
 endif()
 
-target_link_libraries(doxygen
-    _doxygen
+target_link_libraries(doxygen PRIVATE
+    doxymain
     doxycfg
     qtools
     md5
@@ -331,12 +361,19 @@ target_link_libraries(doxygen
     ${CMAKE_THREAD_LIBS_INIT}
     ${EXTRA_LIBS}
     ${CLANG_LIBS}
+    ${COVERAGE_LINKER_FLAGS}
     ${DOXYGEN_EXTRA_LINK_OPTIONS}
 )
 
 set_project_warnings(doxycfg)
-set_project_warnings(_doxygen)
+set_project_warnings(doxymain)
 set_project_warnings(doxygen)
+
+set_project_coverage(qtools)
+set_project_coverage(doxycfg)
+set_project_coverage(doxymain)
+set_project_coverage(doxygen)
+
 
 install(TARGETS doxygen DESTINATION bin)
 

@@ -76,6 +76,11 @@ class TranslatorEsperanto : public TranslatorAdapter_1_8_4
       return "\\usepackage[esperanto]{babel}\n";
     }
 
+    virtual QCString trISOLang()
+    {
+      return "eo";
+    }
+
     // --- Language translation methods -------------------
 
     /*! used in the compound documentation before a list of related functions. */
@@ -246,6 +251,10 @@ class TranslatorEsperanto : public TranslatorAdapter_1_8_4
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Jen datumstrukturoj kun mallongaj priskriboj:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Jen la klasoj kun mallongaj priskriboj:";
       }
       else
       {
@@ -1940,8 +1949,6 @@ class TranslatorEsperanto : public TranslatorAdapter_1_8_4
     {
       return "Fasona Superrigardo";
     }
-
-//////////////////////////////////////////////////////////////////////////
 
 };
 

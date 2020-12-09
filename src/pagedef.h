@@ -1,12 +1,10 @@
 /******************************************************************************
  *
- * 
- *
- * Copyright (C) 1997-2015 by Dimitri van Heesch.
+ * Copyright (C) 1997-2020 by Dimitri van Heesch.
  *
  * Permission to use, copy, modify, and distribute this software and its
- * documentation under the terms of the GNU General Public License is hereby 
- * granted. No representations are made about the suitability of this software 
+ * documentation under the terms of the GNU General Public License is hereby
+ * granted. No representations are made about the suitability of this software
  * for any purpose. It is provided "as is" without express or implied warranty.
  * See the GNU General Public License for more details.
  *
@@ -26,7 +24,7 @@ class OutputList;
 class FTextStream;
 
 /** @brief A model of a page symbol. */
-class PageDef : virtual public Definition
+class PageDef : public DefinitionMutable, public Definition
 {
   public:
     virtual ~PageDef() {}
@@ -66,6 +64,13 @@ class PageDef : virtual public Definition
 };
 
 PageDef *createPageDef(const char *f,int l,const char *n,const char *d,const char *t);
+
+// --- Cast functions
+
+PageDef            *toPageDef(Definition *d);
+const PageDef      *toPageDef(const Definition *d);
+
+// ------------------
 
 class PageSDict : public SDict<PageDef>
 {

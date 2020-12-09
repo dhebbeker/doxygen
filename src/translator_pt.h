@@ -59,7 +59,7 @@
 #define TRANSLATOR_PT_H
 
 
-class TranslatorPortuguese : public Translator
+class TranslatorPortuguese : public TranslatorAdapter_1_8_19
 {
   public:
 
@@ -92,6 +92,11 @@ class TranslatorPortuguese : public Translator
     {
       return
         "\\usepackage[portuges]{babel}\n";
+    }
+
+    virtual QCString trISOLang()
+    {
+      return "pt";
     }
 
     // --- Language translation methods -------------------
@@ -261,6 +266,10 @@ class TranslatorPortuguese : public Translator
       if (Config_getBool(OPTIMIZE_OUTPUT_FOR_C))
       {
         return "Lista das estruturas de dados com uma breve descrição:";
+      }
+      else if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
+      {
+        return "Lista de classes com uma breve descrição:";
       }
       else
       {
@@ -1945,15 +1954,6 @@ class TranslatorPortuguese : public Translator
       return "Documentação do método";
     }
 
-    /*! Used as the title of the design overview picture created for the
-     *  VHDL output.
-     */
-    virtual QCString trDesignOverview()
-    {
-      // I'm not sure how to accurately translate it
-      return "Visão geral do design";
-    }
-
 //////////////////////////////////////////////////////////////////////////
 // new since 1.8.4
 //////////////////////////////////////////////////////////////////////////
@@ -2272,7 +2272,6 @@ class TranslatorPortuguese : public Translator
         return "Dados Membros";
     }
 
-//////////////////////////////////////////////////////////////////////////
 
 };
 

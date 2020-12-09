@@ -37,11 +37,19 @@ class DocRoot;
 class OutputList : public OutputDocInterface
 {
   public:
-    OutputList(bool);
+    OutputList();
+    OutputList(const OutputList &ol);
+    OutputList &operator=(const OutputList &ol);
     virtual ~OutputList();
 
-    void add(OutputGenerator *);
-    uint count() const { return static_cast<uint>(m_outputs.size()); }
+    template<class Generator>
+    void add()
+    {
+      m_outputs.emplace_back(std::make_unique<Generator>());
+    }
+
+    size_t size() const { return m_outputs.size(); }
+    int id() const { return m_id; }
 
     void disableAllBut(OutputGenerator::OutputType o);
     void enableAll();
@@ -59,9 +67,10 @@ class OutputList : public OutputDocInterface
 
     void generateDoc(const char *fileName,int startLine,
                      const Definition *ctx,const MemberDef *md,const QCString &docStr,
-                     bool indexWords,bool isExample,const char *exampleName=0,
-                     bool singleLine=FALSE,bool linkFromIndex=FALSE);
-    void writeDoc(DocRoot *root,const Definition *ctx,const MemberDef *md);
+                     bool indexWords,bool isExample,const char *exampleName /*=0*/,
+                     bool singleLine /*=FALSE*/,bool linkFromIndex /*=FALSE*/,
+                     bool markdownSupport /*=FALSE*/);
+    void writeDoc(DocRoot *root,const Definition *ctx,const MemberDef *md,int id=0);
     void parseText(const QCString &textStr);
 
     void startIndexSection(IndexSections is)
@@ -77,7 +86,10 @@ class OutputList : public OutputDocInterface
     void writeStyleInfo(int part)
     { forall(&OutputGenerator::writeStyleInfo,part); }
     void startFile(const char *name,const char *manName,const char *title)
-    { forall(&OutputGenerator::startFile,name,manName,title); }
+    {
+      newId();
+      forall(&OutputGenerator::startFile,name,manName,title,m_id);
+    }
     void writeSearchInfo()
     { forall(&OutputGenerator::writeSearchInfo); }
     void writeFooter(const char *navPath)
@@ -221,10 +233,10 @@ class OutputList : public OutputDocInterface
     { forall(&OutputGenerator::writeRuler); }
     void writeAnchor(const char *fileName,const char *name)
     { forall(&OutputGenerator::writeAnchor,fileName,name); }
-    void startCodeFragment()
-    { forall(&OutputGenerator::startCodeFragment); }
-    void endCodeFragment()
-    { forall(&OutputGenerator::endCodeFragment); }
+    void startCodeFragment(const char *style)
+    { forall(&OutputGenerator::startCodeFragment,style); }
+    void endCodeFragment(const char *style)
+    { forall(&OutputGenerator::endCodeFragment,style); }
     void startCodeLine(bool hasLineNumbers)
     { forall(&OutputGenerator::startCodeLine,hasLineNumbers); }
     void endCodeLine()
@@ -478,6 +490,7 @@ class OutputList : public OutputDocInterface
   private:
     void debug();
     void clear();
+    void newId();
 
     // For each output format that is enabled (OutputGenerator::isEnabled()) we forward
     // the method call.
@@ -492,8 +505,9 @@ class OutputList : public OutputDocInterface
       }
     }
 
-    OutputList(const OutputList &ol);
     std::vector< std::unique_ptr<OutputGenerator> > m_outputs;
+    int m_id;
+
 };
 
 #endif

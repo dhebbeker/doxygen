@@ -48,8 +48,6 @@
 #include "filename.h"
 #include "namespacedef.h"
 
-static bool DoxyCodeLineOpen = FALSE;
-
 //#define DBG_RTF(x) x;
 #define DBG_RTF(x)
 
@@ -63,16 +61,23 @@ static QCString dateToRTFDateString()
   return result;
 }
 
-RTFGenerator::RTFGenerator() : OutputGenerator()
+RTFGenerator::RTFGenerator() : OutputGenerator(Config_getString(RTF_OUTPUT))
 {
-  m_dir=Config_getString(RTF_OUTPUT);
-  m_col=0;
-  //insideTabbing=FALSE;
-  m_listLevel = 0;
-  m_bstartedBody = FALSE;
-  m_omitParagraph = FALSE;
-  m_numCols = 0;
-  m_prettyCode=Config_getBool(RTF_SOURCE_CODE);
+}
+
+RTFGenerator::RTFGenerator(const RTFGenerator &og) : OutputGenerator(og)
+{
+}
+
+RTFGenerator &RTFGenerator::operator=(const RTFGenerator &og)
+{
+  OutputGenerator::operator=(og);
+  return *this;
+}
+
+std::unique_ptr<OutputGenerator> RTFGenerator::clone() const
+{
+  return std::make_unique<RTFGenerator>(*this);
 }
 
 RTFGenerator::~RTFGenerator()
@@ -186,14 +191,14 @@ void RTFGenerator::init()
   }
 
   // overwrite some (or all) definitions from file
-  QCString &rtfStyleSheetFile = Config_getString(RTF_STYLESHEET_FILE);
+  QCString rtfStyleSheetFile = Config_getString(RTF_STYLESHEET_FILE);
   if (!rtfStyleSheetFile.isEmpty())
   {
     loadStylesheet(rtfStyleSheetFile, rtf_Style);
   }
 
   // If user has defined an extension file, load its contents.
-  QCString &rtfExtensionsFile = Config_getString(RTF_EXTENSIONS_FILE);
+  QCString rtfExtensionsFile = Config_getString(RTF_EXTENSIONS_FILE);
   if (!rtfExtensionsFile.isEmpty())
   {
     loadExtensions(rtfExtensionsFile);
@@ -367,7 +372,7 @@ void RTFGenerator::beginRTFSection()
   t << rtf_Style["Heading2"]->reference() << "\n";
 }
 
-void RTFGenerator::startFile(const char *name,const char *,const char *)
+void RTFGenerator::startFile(const char *name,const char *,const char *,int)
 {
   //setEncoding(QCString().sprintf("CP%s",theTranslator->trRTFansicp()));
   QCString fileName=name;
@@ -521,7 +526,8 @@ void RTFGenerator::startIndexSection(IndexSections is)
         {
           if (cd->isLinkableInProject() &&
               cd->templateMaster()==0 &&
-             !cd->isEmbeddedInOuterScope()
+             !cd->isEmbeddedInOuterScope() &&
+             !cd->isAlias()
              )
           {
             beginRTFChapter();
@@ -577,8 +583,8 @@ void RTFGenerator::endIndexSection(IndexSections is)
 {
   bool fortranOpt = Config_getBool(OPTIMIZE_FOR_FORTRAN);
   bool vhdlOpt    = Config_getBool(OPTIMIZE_OUTPUT_VHDL);
-  static bool sourceBrowser = Config_getBool(SOURCE_BROWSER);
-  static QCString projectName = Config_getString(PROJECT_NAME);
+  bool sourceBrowser = Config_getBool(SOURCE_BROWSER);
+  QCString projectName = Config_getString(PROJECT_NAME);
 
   switch (is)
   {
@@ -623,7 +629,7 @@ void RTFGenerator::endIndexSection(IndexSections is)
         {
           DocText *root = validatingParseText(projectName);
           t << "{\\field\\fldedit {\\*\\fldinst TITLE \\\\*MERGEFORMAT}{\\fldrslt ";
-          writeDoc(root,0,0);
+          writeDoc(root,0,0,0);
           t << "}}\\par" << endl;
 
         }
@@ -778,7 +784,7 @@ void RTFGenerator::endIndexSection(IndexSections is)
         bool found=FALSE;
         for (nli.toFirst();(nd=nli.current()) && !found;++nli)
         {
-          if (nd->isLinkableInProject())
+          if (nd->isLinkableInProject() && !nd->isAlias())
           {
             t << "\\par " << rtf_Style_Reset << endl;
             t << "{\\field\\fldedit{\\*\\fldinst INCLUDETEXT \"";
@@ -789,7 +795,7 @@ void RTFGenerator::endIndexSection(IndexSections is)
         }
         while ((nd=nli.current()))
         {
-          if (nd->isLinkableInProject())
+          if (nd->isLinkableInProject() && !nd->isAlias())
           {
             t << "\\par " << rtf_Style_Reset << endl;
             beginRTFSection();
@@ -818,7 +824,8 @@ void RTFGenerator::endIndexSection(IndexSections is)
         {
           if (cd->isLinkableInProject() &&
               cd->templateMaster()==0 &&
-             !cd->isEmbeddedInOuterScope()
+             !cd->isEmbeddedInOuterScope() &&
+             !cd->isAlias()
              )
           {
             t << "\\par " << rtf_Style_Reset << endl;
@@ -832,7 +839,8 @@ void RTFGenerator::endIndexSection(IndexSections is)
         {
           if (cd->isLinkableInProject() &&
               cd->templateMaster()==0 &&
-             !cd->isEmbeddedInOuterScope()
+             !cd->isEmbeddedInOuterScope() &&
+             !cd->isAlias()
              )
           {
             t << "\\par " << rtf_Style_Reset << endl;
@@ -1872,7 +1880,7 @@ void RTFGenerator::endClassDiagram(const ClassDiagram &d,
   newParagraph();
 
   // create a png file
-  d.writeImage(t,m_dir,m_relPath,fileName,FALSE);
+  d.writeImage(t,dir(),m_relPath,fileName,FALSE);
 
   // display the file
   t << "{" << endl;
@@ -1928,22 +1936,15 @@ void RTFGenerator::writeRTFReference(const char *label)
   t << " \\\\*MERGEFORMAT}{\\fldrslt pagenum}}";
 }
 
-void RTFGenerator::startCodeFragment()
+void RTFGenerator::startCodeFragment(const char *)
 {
   DBG_RTF(t << "{\\comment (startCodeFragment) }"    << endl)
   t << "{" << endl;
-  //newParagraph();
   t << rtf_Style_Reset << rtf_Code_DepthStyle();
-  //styleStack.push(rtf_Style_CodeExample);
 }
 
-void RTFGenerator::endCodeFragment()
+void RTFGenerator::endCodeFragment(const char *)
 {
-  //newParagraph();
-  //styleStack.pop();
-  //printf("RTFGenerator::endCodeFragment() top=%s\n",styleStack.top());
-  //t << rtf_Style_Reset << styleStack.top() << endl;
-  //endCodeLine checks is there is still an open code line, if so closes it.
   endCodeLine();
 
   DBG_RTF(t << "{\\comment (endCodeFragment) }"    << endl)
@@ -2500,7 +2501,7 @@ void RTFGenerator::endDotGraph(DotClassGraph &g)
   newParagraph();
 
   QCString fn =
-    g.writeGraph(t,GOF_BITMAP,EOF_Rtf,Config_getString(RTF_OUTPUT),m_fileName,m_relPath,TRUE,FALSE);
+    g.writeGraph(t,GOF_BITMAP,EOF_Rtf,dir(),fileName(),m_relPath,TRUE,FALSE);
 
   // display the file
   t << "{" << endl;
@@ -2523,8 +2524,7 @@ void RTFGenerator::endInclDepGraph(DotInclDepGraph &g)
 {
   newParagraph();
 
-  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_Rtf,Config_getString(RTF_OUTPUT),
-                         m_fileName,m_relPath,FALSE);
+  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_Rtf,dir(),fileName(),m_relPath,FALSE);
 
   // display the file
   t << "{" << endl;
@@ -2554,8 +2554,7 @@ void RTFGenerator::endCallGraph(DotCallGraph &g)
 {
   newParagraph();
 
-  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_Rtf,Config_getString(RTF_OUTPUT),
-                        m_fileName,m_relPath,FALSE);
+  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_Rtf,dir(),fileName(),m_relPath,FALSE);
 
   // display the file
   t << "{" << endl;
@@ -2577,8 +2576,7 @@ void RTFGenerator::endDirDepGraph(DotDirDeps &g)
 {
   newParagraph();
 
-  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_Rtf,Config_getString(RTF_OUTPUT),
-                        m_fileName,m_relPath,FALSE);
+  QCString fn = g.writeGraph(t,GOF_BITMAP,EOF_Rtf,dir(),fileName(),m_relPath,FALSE);
 
   // display the file
   t << "{" << endl;
@@ -2801,7 +2799,7 @@ void RTFGenerator::exceptionEntry(const char* prefix,bool closeBracket)
   t << " ";
 }
 
-void RTFGenerator::writeDoc(DocNode *n,const Definition *ctx,const MemberDef *)
+void RTFGenerator::writeDoc(DocNode *n,const Definition *ctx,const MemberDef *,int)
 {
   RTFDocVisitor *visitor = new RTFDocVisitor(t,*this,ctx?ctx->getDefFileExtension():QCString(""));
   n->accept(visitor);
@@ -3037,9 +3035,9 @@ void RTFGenerator::endInlineMemberDoc()
 
 void RTFGenerator::writeLineNumber(const char *ref,const char *fileName,const char *anchor,int l)
 {
-  static bool rtfHyperlinks = Config_getBool(RTF_HYPERLINKS);
+  bool rtfHyperlinks = Config_getBool(RTF_HYPERLINKS);
 
-  DoxyCodeLineOpen = TRUE;
+  m_doxyCodeLineOpen = true;
   QCString lineNumber;
   lineNumber.sprintf("%05d",l);
   if (m_prettyCode)
@@ -3066,13 +3064,13 @@ void RTFGenerator::writeLineNumber(const char *ref,const char *fileName,const ch
 }
 void RTFGenerator::startCodeLine(bool)
 {
-  DoxyCodeLineOpen = TRUE;
+  m_doxyCodeLineOpen = true;
   m_col=0;
 }
 void RTFGenerator::endCodeLine()
 {
-  if (DoxyCodeLineOpen) lineBreak();
-  DoxyCodeLineOpen = FALSE;
+  if (m_doxyCodeLineOpen) lineBreak();
+  m_doxyCodeLineOpen = false;
 }
 
 void RTFGenerator::startLabels()
