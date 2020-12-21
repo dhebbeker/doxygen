@@ -364,7 +364,7 @@ static ConstDirList getTreeRootsLimited(const ConstDirList& basedOnDirectories, 
   return ancestorList;
 }
 
-void drawDirectory(FTextStream &outputStream, const DirDef* const directory, const DotDirProperty& property)
+static void drawDirectory(FTextStream &outputStream, const DirDef* const directory, const DotDirProperty& property)
 {
   const char *borderColor = nullptr;
   if (property.isTruncated)
