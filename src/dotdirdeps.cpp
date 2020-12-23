@@ -381,23 +381,28 @@ static ConstDirList getTreeRootsLimited(const ConstDirList& basedOnDirectories, 
   return ancestorList;
 }
 
-static void drawDirectory(FTextStream &outputStream, const DirDef* const directory, const DotDirProperty& property)
+static const char* getDirectoryBorderColor(const DotDirProperty &property)
 {
-  // border color
-  const char *borderColor = "/rdgy4/4"; // color dark grey
   if (property.isTruncated && property.isOrphaned)
   {
-    borderColor = "/rdgy4/2";  // color salmon
+    return "/rdgy4/2";  // color salmon
   }
   else if (property.isTruncated)
   {
-    borderColor = "/rdgy4/1"; // color red
+    return "/rdgy4/1"; // color red
   }
   else if (property.isOrphaned)
   {
-    borderColor = "/rdgy4/3"; // color silver
+    return "/rdgy4/3"; // color silver
   }
+  else
+  {
+    return "/rdgy4/4"; // color dark grey
+  }
+}
 
+static std::string getDirectoryBorderStyle(const DotDirProperty& property)
+{
   std::string style = "filled";
   if(property.isOriginal)
   {
@@ -407,10 +412,14 @@ static void drawDirectory(FTextStream &outputStream, const DirDef* const directo
   {
     style += ",dashed";
   }
+  return style;
+}
 
+static void drawDirectory(FTextStream &outputStream, const DirDef* const directory, const DotDirProperty& property)
+{
   outputStream << "  " << directory->getOutputFileBase() << " [shape=box, label=\"" << directory->shortName()
-      << "\", style=\"" << style << "\", fillcolor=\"" << getDirectoryBackgroundColorCode(directory->level()) << "\","
-      << " color=\"" << borderColor << "\", URL=\"" << directory->getOutputFileBase()
+      << "\", style=\"" << getDirectoryBorderStyle(property) << "\", fillcolor=\"" << getDirectoryBackgroundColorCode(directory->level()) << "\","
+      << " color=\"" << getDirectoryBorderColor(property) << "\", URL=\"" << directory->getOutputFileBase()
       << Doxygen::htmlFileExtension << "\"];\n";
 }
 
@@ -447,14 +456,24 @@ static void drawTrees(FTextStream &outputStream, const ConstDirList& listOfTreeR
         {  // open cluster
           static const auto fontName = Config_getString(DOT_FONTNAME);
           static const auto fontSize = Config_getInt(DOT_FONTSIZE);
-          outputStream << "  subgraph cluster" << directory->getOutputFileBase() << " {\n"
-              << "    graph [ bgcolor=\""
-              << getDirectoryBackgroundColorCode(directory->level())
-              << "\", pencolor=\"black\", label=\"\" fontname=\"" << fontName
-			  << "\", fontsize=\"" << fontSize << "\", URL=\""
-              << directory->getOutputFileBase() << Doxygen::htmlFileExtension << "\"]\n"
-			  << "    " << directory->getOutputFileBase() << " [shape=plaintext label=\""
-			  << directory->shortName() << "\"];\n";
+          outputStream << "  subgraph cluster" << directory->getOutputFileBase()
+              << " {\n"
+                  "    graph [ "
+                  "bgcolor=\""
+              << getDirectoryBackgroundColorCode(directory->level()) << "\", "
+                  "pencolor=\"" << getDirectoryBorderColor(directoryProperty)
+              << "\", "
+                  "style=\"" << getDirectoryBorderStyle(directoryProperty) << "\", "
+                  "label=\"\", "
+                  "fontname=\"" << fontName << "\", "
+                  "fontsize=\"" << fontSize << "\", "
+                  "URL=\"" << directory->getOutputFileBase()
+              << Doxygen::htmlFileExtension << "\""
+                  "]\n"
+                  "    " << directory->getOutputFileBase()
+              << " [shape=plaintext, "
+                  "label=\"" << directory->shortName() << "\""
+                  "];\n";
         }
         drawTrees(outputStream, makeConstCopy(directory->subDirs()), directoryProperties, startLevel);
         {  //close cluster
