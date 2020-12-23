@@ -578,9 +578,8 @@ static void writeDotDirDependencyGraph(FTextStream &outputStream,
                           originalDirectoryTree, directoryDrawingProperties,
                           startLevel);
   const auto dependeeTrees = dependeeDirectories+ getSuccessors(dependeeDirectories);
-  const auto allNonAncestorDirectories = originalDirectoryTree + dependeeTrees;
   const auto listOfRelations = getDirRelations(
-                                               allNonAncestorDirectories,
+                                               originalDirectoryTree,
                                                startLevel);
 
   // write the head of the DOT file
