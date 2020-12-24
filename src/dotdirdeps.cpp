@@ -385,19 +385,19 @@ static const char* getDirectoryBorderColor(const DotDirProperty &property)
 {
   if (property.isTruncated && property.isOrphaned)
   {
-    return "/rdgy4/2";  // color salmon
+    return "darkorchid3";
   }
   else if (property.isTruncated)
   {
-    return "/rdgy4/1"; // color red
+    return "red";
   }
   else if (property.isOrphaned)
   {
-    return "/rdgy4/3"; // color silver
+    return "grey75";
   }
   else
   {
-    return "/rdgy4/4"; // color dark grey
+    return "black";
   }
 }
 
