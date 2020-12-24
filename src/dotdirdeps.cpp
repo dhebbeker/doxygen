@@ -417,10 +417,16 @@ static std::string getDirectoryBorderStyle(const DotDirProperty& property)
 
 static void drawDirectory(FTextStream &outputStream, const DirDef* const directory, const DotDirProperty& property)
 {
-  outputStream << "  " << directory->getOutputFileBase() << " [shape=box, label=\"" << directory->shortName()
-      << "\", style=\"" << getDirectoryBorderStyle(property) << "\", fillcolor=\"" << getDirectoryBackgroundColorCode(directory->level()) << "\","
-      << " color=\"" << getDirectoryBorderColor(property) << "\", URL=\"" << directory->getOutputFileBase()
-      << Doxygen::htmlFileExtension << "\"];\n";
+  outputStream << "  " << directory->getOutputFileBase() << " ["
+      "shape=box, "
+      "label=\"" << directory->shortName() << "\", "
+      "style=\"" << getDirectoryBorderStyle(property) << "\", "
+      "fillcolor=\"" << getDirectoryBackgroundColorCode(directory->level())
+      << "\", "
+          "color=\"" << getDirectoryBorderColor(property) << "\", "
+          "URL=\"" << directory->getOutputFileBase()
+      << Doxygen::htmlFileExtension << "\""
+          "];\n";
 }
 
 /**
