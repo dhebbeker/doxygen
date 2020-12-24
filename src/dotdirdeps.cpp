@@ -445,47 +445,58 @@ static void drawTrees(FTextStream &outputStream, const ConstDirList& listOfTreeR
 {
   for (const auto directory : listOfTreeRoots)
   {
-    auto directoryProperty = directoryProperties[directory];
-    if (directory->subDirs().empty())
+    try
     {
-      drawDirectory(outputStream, directory, directoryProperty);
-    }
-    else
-    {
-      if (((directory->level() + 1) - startLevel) > Config_getInt(MAX_DOT_GRAPH_SUCCESSOR))
+      auto directoryProperty = directoryProperties.at(directory);
+      if (directory->subDirs().empty())
       {
-        directoryProperty.isTruncated = true;
         drawDirectory(outputStream, directory, directoryProperty);
       }
       else
       {
-        {  // open cluster
-          static const auto fontName = Config_getString(DOT_FONTNAME);
-          static const auto fontSize = Config_getInt(DOT_FONTSIZE);
-          outputStream << "  subgraph cluster" << directory->getOutputFileBase()
-              << " {\n"
-                  "    graph [ "
-                  "bgcolor=\""
-              << getDirectoryBackgroundColorCode(directory->level()) << "\", "
-                  "pencolor=\"" << getDirectoryBorderColor(directoryProperty)
-              << "\", "
-                  "style=\"" << getDirectoryBorderStyle(directoryProperty) << "\", "
-                  "label=\"\", "
-                  "fontname=\"" << fontName << "\", "
-                  "fontsize=\"" << fontSize << "\", "
-                  "URL=\"" << directory->getOutputFileBase()
-              << Doxygen::htmlFileExtension << "\""
-                  "]\n"
-                  "    " << directory->getOutputFileBase()
-              << " [shape=plaintext, "
-                  "label=\"" << directory->shortName() << "\""
-                  "];\n";
+        if (((directory->level() + 1) - startLevel)
+            > Config_getInt(MAX_DOT_GRAPH_SUCCESSOR))
+        {
+          directoryProperty.isTruncated = true;
+          drawDirectory(outputStream, directory, directoryProperty);
         }
-        drawTrees(outputStream, makeConstCopy(directory->subDirs()), directoryProperties, startLevel);
-        {  //close cluster
-          outputStream << "  }\n";
+        else
+        {
+          {  // open cluster
+            static const auto fontName = Config_getString(DOT_FONTNAME);
+            static const auto fontSize = Config_getInt(DOT_FONTSIZE);
+            outputStream << "  subgraph cluster"
+                << directory->getOutputFileBase() << " {\n"
+                    "    graph [ "
+                    "bgcolor=\""
+                << getDirectoryBackgroundColorCode(directory->level()) << "\", "
+                    "pencolor=\"" << getDirectoryBorderColor(directoryProperty)
+                << "\", "
+                    "style=\"" << getDirectoryBorderStyle(directoryProperty)
+                << "\", "
+                    "label=\"\", "
+                    "fontname=\"" << fontName << "\", "
+                    "fontsize=\"" << fontSize << "\", "
+                    "URL=\"" << directory->getOutputFileBase()
+                << Doxygen::htmlFileExtension << "\""
+                    "]\n"
+                    "    " << directory->getOutputFileBase()
+                << " [shape=plaintext, "
+                    "label=\"" << directory->shortName() << "\""
+                    "];\n";
+          }
+          drawTrees(
+                    outputStream,
+                    makeConstCopy(directory->subDirs()),
+                    directoryProperties,
+                    startLevel);
+          {  //close cluster
+            outputStream << "  }\n";
+          }
         }
       }
+    } catch (const std::out_of_range&)
+    { // directory properties do not exist, do not draw that directory
     }
   }
 }
@@ -578,12 +589,16 @@ static void writeDotDirDependencyGraph(FTextStream &outputStream,
       getDependees(
                    originalDirectoryTree,
                    startLevel - Config_getInt(MAX_DOT_GRAPH_ANCESTOR));
+  for (auto directory : successorsOfOriginalDirectory + dependeeDirectories)
+  {
+    // create default entries for missing elements
+    directoryDrawingProperties.insert( { directory, { } });
+  }
   const auto listOfTreeRoots =
       getTreeRootsLimited(
                           dependeeDirectories + originalDirectoryPointer,
                           originalDirectoryTree, directoryDrawingProperties,
                           startLevel);
-  const auto dependeeTrees = dependeeDirectories+ getSuccessors(dependeeDirectories);
   const auto listOfRelations = getDirRelations(
                                                originalDirectoryTree,
                                                startLevel);
