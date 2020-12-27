@@ -6,7 +6,6 @@
 #ifndef VECTOR_UTILS_HPP
 #define VECTOR_UTILS_HPP
 
-#include <vector>
 #include <type_traits>
 
 namespace details {
@@ -34,8 +33,8 @@ auto concat(T v1, A&&... vr) {
     return std::move(v1);   // rvo blocked
 }
 
-template<typename T>
-auto concat(const std::vector<T>& v, const T& t)
+template<template<typename, typename> class ContainerType, typename ValueType, typename Allocator>
+auto concat(const ContainerType<ValueType, Allocator>& v, const ValueType& t)
 {
   std::remove_const_t<std::remove_reference_t<decltype(v)>> newV(v);
   newV.push_back(t);
