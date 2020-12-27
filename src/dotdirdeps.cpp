@@ -169,65 +169,6 @@ static QCString getDirectoryBackgroundColorCode(const std::size_t depthIndex)
   return colorSchemeName + colorIndex;
 }
 
-static void writeDotDir(FTextStream &t, const DirDef *const dd, const bool isTruncated)
-{
-  const char *borderColor = nullptr;
-  if (isTruncated)
-  {
-    borderColor = "red";
-  }
-  else
-  {
-    borderColor = "black";
-  }
-
-  t << "  " << dd->getOutputFileBase() << " [shape=box, label=\"" << dd->shortName()
-      << "\", style=\"filled\", fillcolor=\"" << getDirectoryBackgroundColorCode(dd->level()) << "\","
-      << " pencolor=\"" << borderColor << "\", URL=\"" << dd->getOutputFileBase()
-      << Doxygen::htmlFileExtension << "\"];\n";
-}
-
-/**
- * Writes directory or a cluster of directories.
- *
- * @todo add parameter for max number of nodes
- * @param t is written to
- * @param dd is checked to be a cluster by this function
- * @param remainingDepth is a shrinking limit for recursion
- */
-static void writeDotDirDepSubGraph(FTextStream &t, const DirDef *const dd,
-    QDict<DirDef> &dirsInGraph, const std::size_t remainingDepth)
-{
-  if (dd->isCluster())
-  {
-    if (remainingDepth > 0)
-    {
-      t << "  subgraph cluster" << dd->getOutputFileBase() << " {\n";
-      t << "    graph [ bgcolor=\"" << getDirectoryBackgroundColorCode(dd->level())
-          << "\", pencolor=\"black\", label=\"\"" << " URL=\"" << dd->getOutputFileBase()
-          << Doxygen::htmlFileExtension << "\"];\n";
-      t << "    " << dd->getOutputFileBase() << " [shape=plaintext label=\"" << dd->shortName()
-          << "\"];\n";
-
-      // add nodes for sub directories
-      for(const auto sdir : dd->subDirs())
-      {
-        writeDotDirDepSubGraph(t, sdir, dirsInGraph, remainingDepth - 1);
-        dirsInGraph.insert(sdir->getOutputFileBase(), sdir);
-      }
-      t << "  }\n";
-    }
-    else
-    {
-      writeDotDir(t, dd, true);
-    }
-  }
-  else
-  {
-    writeDotDir(t, dd, false);
-  }
-}
-
 static ConstDirList getSuccessors(const ConstDirList& nextLevelSuccessors)
 {
   ConstDirList successors;
