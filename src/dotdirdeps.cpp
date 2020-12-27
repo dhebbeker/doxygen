@@ -131,7 +131,7 @@ Determine recursively children and *do not* respect limits.
 #include "util.h"
 #include "doxygen.h"
 #include "config.h"
-#include "vector_utils.hpp"
+#include "container_utils.hpp"
 
 /**
  * Creates copy without duplicate values.
