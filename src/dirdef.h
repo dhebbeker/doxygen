@@ -22,7 +22,7 @@
 #include <vector>
 #include <qglobal.h>
 #include <qcstring.h>
-#include "type_utils.hpp"
+#include "container_utils.hpp"
 
 class FileList;
 class QStrList;

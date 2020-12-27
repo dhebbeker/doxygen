@@ -133,21 +133,6 @@ Determine recursively children and *do not* respect limits.
 #include "config.h"
 #include "container_utils.hpp"
 
-/**
- * Creates copy without duplicate values.
- * @attention original order is not preserved
- * @param originalValues
- * @return
- */
-template<typename Container>
-Container removeDuplicates(Container originalValues)
-{
-  std::sort(originalValues.begin(), originalValues.end());
-  const auto last = std::unique(originalValues.begin(), originalValues.end());
-  originalValues.erase(last, originalValues.end());
-  return originalValues;
-}
-
 struct DotDirProperty
 {
   bool isIncomplete = false;
