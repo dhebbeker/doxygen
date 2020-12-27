@@ -148,7 +148,7 @@ std::vector<T> operator+(const std::vector<T> &A, const std::vector<T> &B)
     return AB;
 }
 
- //! @see https://stackoverflow.com/a/21391109/5534993
+ //! @see https://stackoverflow.com/a/21391109/5534993, https://stackoverflow.com/questions/2551775/appending-a-vector-to-a-vector#comment46026039_2551785
 template <typename T>
 std::vector<T> &operator+=(std::vector<T> &A, const std::vector<T> &B)
 {
