@@ -260,8 +260,8 @@ static ConstDirList getSuccessors(const ConstDirList& nextLevelSuccessors)
   ConstDirList successors;
   for (const auto successor : nextLevelSuccessors)
   {
-    successors += successor;
-    successors += getSuccessors(makeConstCopy(successor->subDirs()));
+    successors.push_back(successor);
+    successors = concat(successors, getSuccessors(makeConstCopy(successor->subDirs())));
   }
   return successors;
 }
@@ -287,7 +287,7 @@ static auto getDependees(const ConstDirList& dependents, const DirectoryLevel mi
     {
       if (usedDirectory->dir()->level() >= minLevel)
       {
-        dependees += usedDirectory->dir();
+        dependees.push_back(usedDirectory->dir());
       }
     }
   }
@@ -545,19 +545,19 @@ static void writeDotDirDependencyGraph(FTextStream &outputStream,
   const auto successorsOfOriginalDirectory =
       getSuccessors(makeConstCopy(originalDirectoryPointer->subDirs()));
   // contains also the ancestors of the dependees
-  const auto originalDirectoryTree = successorsOfOriginalDirectory + originalDirectoryPointer;
+  const auto originalDirectoryTree = concat(successorsOfOriginalDirectory, originalDirectoryPointer);
   const auto dependeeDirectories =
       getDependees(
                    originalDirectoryTree,
                    startLevel - Config_getInt(MAX_DOT_GRAPH_ANCESTOR));
-  for (auto directory : successorsOfOriginalDirectory + dependeeDirectories)
+  for (auto directory : concat(successorsOfOriginalDirectory, dependeeDirectories))
   {
     // create default entries for missing elements
     directoryDrawingProperties.insert( { directory, { } });
   }
   const auto listOfTreeRoots =
-      getTreeRootsLimited(
-                          dependeeDirectories + originalDirectoryPointer,
+      getTreeRootsLimited(concat(
+                          dependeeDirectories, originalDirectoryPointer),
                           originalDirectoryTree, directoryDrawingProperties,
                           startLevel);
   const auto listOfRelations = getDirRelations(
