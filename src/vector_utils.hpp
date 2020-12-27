@@ -26,7 +26,7 @@ template<class V> void concat_helper(V& l, V&& r) {
 } // namespace details
 
 template<typename T, typename... A>
-std::vector<T> concat(std::vector<T> v1, A&&... vr) {
+auto concat(T v1, A&&... vr) {
     std::size_t s = v1.size();
     details::do_in_order { s += vr.size() ... };
     v1.reserve(s);
