@@ -15,8 +15,12 @@
  *
  */
 
+#include <algorithm>
+#include <vector>
+
 #include <ctype.h>
 #include <qregexp.h>
+
 #include "groupdef.h"
 #include "classdef.h"
 #include "filedef.h"
@@ -72,7 +76,7 @@ class GroupDefImpl : public DefinitionMixin<GroupDef>
     virtual void writeMemberPages(OutputList &ol);
     virtual void writeQuickMemberLinks(OutputList &ol,const MemberDef *currentMd) const;
     virtual void writeTagFile(FTextStream &);
-    virtual int  numDocMembers() const;
+    virtual size_t numDocMembers() const;
     virtual bool isLinkableInProject() const;
     virtual bool isLinkable() const;
     virtual bool isASubGroup() const;
@@ -97,8 +101,8 @@ class GroupDefImpl : public DefinitionMixin<GroupDef>
     virtual MemberGroupSDict *getMemberGroupSDict() const { return m_memberGroupSDict; }
 
     virtual FileList *      getFiles() const        { return m_fileList; }
-    virtual ClassSDict *    getClasses() const      { return m_classSDict; }
-    virtual NamespaceSDict * getNamespaces() const  { return m_namespaceSDict; }
+    virtual ClassLinkedRefMap getClasses() const    { return m_classes; }
+    virtual NamespaceLinkedRefMap getNamespaces() const  { return m_namespaces; }
     virtual GroupList *     getSubGroups() const    { return m_groupList; }
     virtual PageSDict *     getPages() const        { return m_pageDict; }
     virtual const DirList & getDirs() const         { return m_dirList; }
@@ -136,8 +140,8 @@ class GroupDefImpl : public DefinitionMixin<GroupDef>
     bool                 m_titleSet;            // true if title is not the same as the name
     QCString             m_fileName;            // base name of the generated file
     FileList *           m_fileList;            // list of files in the group
-    ClassSDict *         m_classSDict;          // list of classes in the group
-    NamespaceSDict *     m_namespaceSDict;      // list of namespaces in the group
+    ClassLinkedRefMap    m_classes;             // list of classes in the group
+    NamespaceLinkedRefMap m_namespaces;         // list of namespaces in the group
     GroupList *          m_groupList;           // list of sub groups.
     PageSDict *          m_pageDict;            // list of pages in the group
     PageSDict *          m_exampleDict;         // list of examples in the group
@@ -164,9 +168,7 @@ GroupDefImpl::GroupDefImpl(const char *df,int dl,const char *na,const char *t,
                    const char *refFileName) : DefinitionMixin(df,dl,1,na)
 {
   m_fileList = new FileList;
-  m_classSDict = new ClassSDict(17);
   m_groupList = new GroupList;
-  m_namespaceSDict = new NamespaceSDict(17);
   m_pageDict = new PageSDict(17);
   m_exampleDict = new PageSDict(17);
   if (refFileName)
@@ -191,9 +193,7 @@ GroupDefImpl::GroupDefImpl(const char *df,int dl,const char *na,const char *t,
 GroupDefImpl::~GroupDefImpl()
 {
   delete m_fileList;
-  delete m_classSDict;
   delete m_groupList;
-  delete m_namespaceSDict;
   delete m_pageDict;
   delete m_exampleDict;
   delete m_allMemberList;
@@ -261,47 +261,12 @@ void GroupDefImpl::addFile(const FileDef *def)
 
 bool GroupDefImpl::addClass(const ClassDef *cd)
 {
-  static bool sortBriefDocs = Config_getBool(SORT_BRIEF_DOCS);
   if (cd->isHidden()) return FALSE;
   updateLanguage(cd);
   QCString qn = cd->name();
-  if (m_classSDict->find(qn)==0)
+  if (m_classes.find(qn)==0)
   {
-    //printf("--- addClass %s sort=%d\n",qn.data(),sortBriefDocs);
-    if (sortBriefDocs)
-    {
-      m_classSDict->inSort(qn,cd);
-    }
-    else
-    {
-      int i=qn.findRev("::");
-      if (i==-1) i=qn.find('.');
-      bool found=FALSE;
-      //printf("i=%d\n",i);
-      if (i>0)
-      {
-        // add nested classes (e.g. A::B, A::C) after their parent (A) in
-        // order of insertion
-        QCString scope = qn.left(i);
-        int j=m_classSDict->findAt(scope);
-        if (j!=-1)
-        {
-          while (j<(int)m_classSDict->count() &&
-                        m_classSDict->at(j)->qualifiedName().left(i)==scope)
-          {
-            //printf("skipping over %s\n",classSDict->at(j)->qualifiedName().data());
-            j++;
-          }
-          //printf("Found scope at index %d\n",j);
-          m_classSDict->insertAt(j,qn,cd);
-          found=TRUE;
-        }
-      }
-      if (!found) // no insertion point found -> just append
-      {
-        m_classSDict->append(qn,cd);
-      }
-    }
+    m_classes.add(qn,cd);
     return TRUE;
   }
   return FALSE;
@@ -309,18 +274,14 @@ bool GroupDefImpl::addClass(const ClassDef *cd)
 
 bool GroupDefImpl::addNamespace(const NamespaceDef *def)
 {
-  static bool sortBriefDocs = Config_getBool(SORT_BRIEF_DOCS);
-  if (def->isHidden()) return FALSE;
-  updateLanguage(def);
-  if (m_namespaceSDict->find(def->name())==0)
+  if (def->isHidden()) return false;
+  if (m_namespaces.find(def->name())!=0)
   {
-    if (sortBriefDocs)
-      m_namespaceSDict->inSort(def->name(),def);
-    else
-      m_namespaceSDict->append(def->name(),def);
-    return TRUE;
+    updateLanguage(def);
+    m_namespaces.add(def->name(),def);
+    return true;
   }
-  return FALSE;
+  return false;
 }
 
 void GroupDefImpl::addDir(DirDef *def)
@@ -650,11 +611,11 @@ void GroupDefImpl::countMembers()
   }
 }
 
-int GroupDefImpl::numDocMembers() const
+size_t GroupDefImpl::numDocMembers() const
 {
   return m_fileList->count()+
-         m_classSDict->count()+
-         m_namespaceSDict->count()+
+         m_classes.size()+
+         m_namespaces.size()+
          m_groupList->count()+
          m_allMemberList->count()+
          m_pageDict->count()+
@@ -683,34 +644,24 @@ void GroupDefImpl::writeTagFile(FTextStream &tagFile)
     {
       case LayoutDocEntry::GroupClasses:
         {
-          if (m_classSDict)
+          for (const auto &cd : m_classes)
           {
-            SDict<ClassDef>::Iterator ci(*m_classSDict);
-            ClassDef *cd;
-            for (ci.toFirst();(cd=ci.current());++ci)
+            if (cd->isLinkableInProject())
             {
-              if (cd->isLinkableInProject())
-              {
-                tagFile << "    <class kind=\"" << cd->compoundTypeString()
-                        << "\">" << convertToXML(cd->name()) << "</class>" << endl;
-              }
+              tagFile << "    <class kind=\"" << cd->compoundTypeString()
+                      << "\">" << convertToXML(cd->name()) << "</class>" << endl;
             }
           }
         }
         break;
       case LayoutDocEntry::GroupNamespaces:
         {
-          if (m_namespaceSDict)
+          for (const auto &nd : m_namespaces)
           {
-            SDict<NamespaceDef>::Iterator ni(*m_namespaceSDict);
-            NamespaceDef *nd;
-            for (ni.toFirst();(nd=ni.current());++ni)
+            if (nd->isLinkableInProject())
             {
-              if (nd->isLinkableInProject())
-              {
-                tagFile << "    <namespace>" << convertToXML(nd->name())
-                        << "</namespace>" << endl;
-              }
+              tagFile << "    <namespace>" << convertToXML(nd->name())
+                      << "</namespace>" << endl;
             }
           }
         }
@@ -813,7 +764,7 @@ void GroupDefImpl::writeDetailedDescription(OutputList &ol,const QCString &title
      )
   {
     ol.pushGeneratorState();
-    if (m_pageDict->count()!=(uint)numDocMembers()) // not only pages -> classical layout
+    if (m_pageDict->count()!=numDocMembers()) // not only pages -> classical layout
     {
       ol.pushGeneratorState();
         ol.disable(OutputGenerator::Html);
@@ -961,7 +912,7 @@ void GroupDefImpl::writeFiles(OutputList &ol,const QCString &title)
 void GroupDefImpl::writeNamespaces(OutputList &ol,const QCString &title)
 {
   // write list of namespaces
-  m_namespaceSDict->writeDeclaration(ol,title);
+  m_namespaces.writeDeclaration(ol,title);
 }
 
 void GroupDefImpl::writeNestedGroups(OutputList &ol,const QCString &title)
@@ -1050,12 +1001,12 @@ void GroupDefImpl::writeDirs(OutputList &ol,const QCString &title)
 void GroupDefImpl::writeClasses(OutputList &ol,const QCString &title)
 {
   // write list of classes
-  m_classSDict->writeDeclaration(ol,0,title,FALSE);
+  m_classes.writeDeclaration(ol,0,title,FALSE);
 }
 
 void GroupDefImpl::writeInlineClasses(OutputList &ol)
 {
-  m_classSDict->writeDocumentation(ol);
+  m_classes.writeDocumentation(ol);
 }
 
 void GroupDefImpl::writePageDocumentation(OutputList &ol)
@@ -1152,8 +1103,8 @@ void GroupDefImpl::writeSummaryLinks(OutputList &ol) const
   SrcLangExt lang = getLanguage();
   for (eli.toFirst();(lde=eli.current());++eli)
   {
-    if ((lde->kind()==LayoutDocEntry::GroupClasses && m_classSDict->declVisible()) ||
-        (lde->kind()==LayoutDocEntry::GroupNamespaces && m_namespaceSDict->declVisible()) ||
+    if ((lde->kind()==LayoutDocEntry::GroupClasses && m_classes.declVisible()) ||
+        (lde->kind()==LayoutDocEntry::GroupNamespaces && m_namespaces.declVisible()) ||
         (lde->kind()==LayoutDocEntry::GroupFiles && m_fileList->count()>0) ||
         (lde->kind()==LayoutDocEntry::GroupNestedGroups && m_groupList->count()>0) ||
         (lde->kind()==LayoutDocEntry::GroupDirs && !m_dirList.empty())
@@ -1399,25 +1350,25 @@ void GroupDefImpl::writeQuickMemberLinks(OutputList &ol,const MemberDef *current
   {
     if (md->getGroupDef()==this && md->isLinkable() && !md->isEnumValue())
     {
-      ol.writeString("          <tr><td class=\"navtab\">");
       if (md->isLinkableInProject())
       {
         if (md==currentMd) // selected item => highlight
         {
-          ol.writeString("<a class=\"qindexHL\" ");
+          ol.writeString("          <tr><td class=\"navtabHL\">");
         }
         else
         {
-          ol.writeString("<a class=\"qindex\" ");
+          ol.writeString("          <tr><td class=\"navtab\">");
         }
+        ol.writeString("<a class=\"navtab\" ");
         ol.writeString("href=\"");
         if (createSubDirs) ol.writeString("../../");
         ol.writeString(md->getOutputFileBase()+Doxygen::htmlFileExtension+"#"+md->anchor());
         ol.writeString("\">");
         ol.writeString(convertToHtml(md->localName()));
         ol.writeString("</a>");
+        ol.writeString("</td></tr>\n");
       }
-      ol.writeString("</td></tr>\n");
     }
   }
 
@@ -1697,6 +1648,67 @@ void GroupDefImpl::addMemberToList(MemberListType lt,MemberDef *md)
   ml->append(md);
 }
 
+// performs a partial reordering to group elements together with the same scope
+template<class Vec>
+static void groupClassesWithSameScope(Vec &vec)
+{
+  bool done=false;
+  while (!done) // for each iteration
+  {
+    done=true;
+    for (size_t i=0; i<vec.size(); i++) // go through all items
+    {
+      std::string qni = vec[i]->name().str();
+      size_t posi = qni.rfind("::");
+      if (posi!=std::string::npos)
+      {
+        std::string scope = qni.substr(0,posi);
+        auto it = std::find_if( vec.begin(), vec.end(),
+            [&](typename Vec::Ptr &cd)
+            { return cd->name().str()==scope; });
+        if (it!=vec.end())
+        {
+          size_t idx = std::distance(vec.begin(),it);
+          if (i<idx) // parent scope located after child scope
+          {
+            // to avoid reordering elements with the same parent
+            // we skip to the last one with the same scope
+            size_t k = idx;
+            while (k<vec.size() && vec[k]->name().str().substr(0,posi)==scope)
+            {
+              idx = k;
+              k++;
+            }
+            idx = std::distance(vec.begin(),it);
+            // swap the items such that i is inserted after idx
+            for (size_t j=i; j<idx; j++)
+            {
+              std::swap(vec[j],vec[j+1]);
+            }
+            done=false;
+          }
+          else if (idx<i && vec[i-1]->name().str().substr(0,posi)!=scope)
+          {
+            // parent scope is found before the item, and the item
+            // has some other item with a different scope in front of it
+            // move idx to the end of range with the same scope
+            while (idx<i && vec[idx]->name().str().substr(0,posi)==scope)
+            {
+              idx++;
+            }
+            // swap the items such that i is just after idx
+            for (size_t j=idx; j<i; j++)
+            {
+              std::swap(vec[j],vec[j+1]);
+            }
+            done=false;
+          }
+        }
+      }
+    }
+  }
+}
+
 void GroupDefImpl::sortMemberLists()
 {
   QListIterator<MemberList> mli(m_memberLists);
@@ -1708,6 +1720,26 @@ void GroupDefImpl::sortMemberLists()
   if (Config_getBool(SORT_BRIEF_DOCS))
   {
     std::sort(m_dirList.begin(), m_dirList.end(), compareDirDefs);
+
+    auto classComp = [](const ClassLinkedRefMap::Ptr &c1,const ClassLinkedRefMap::Ptr &c2)
+    {
+      return Config_getBool(SORT_BY_SCOPE_NAME)     ?
+        qstricmp(c1->name(), c2->name())<0          :
+        qstricmp(c1->className(), c2->className())<0;
+    };
+    std::sort(m_classes.begin(), m_classes.end(), classComp);
+
+    auto namespaceComp = [](const NamespaceLinkedRefMap::Ptr &n1,const NamespaceLinkedRefMap::Ptr &n2)
+    {
+      return qstricmp(n1->name(),n2->name())<0;
+    };
+
+    std::sort(m_namespaces.begin(),m_namespaces.end(),namespaceComp);
+  }
+  else
+  {
+    groupClassesWithSameScope(m_classes);
+    groupClassesWithSameScope(m_namespaces);
   }
 }
 
@@ -1782,7 +1814,7 @@ bool GroupDefImpl::hasDetailedDescription() const
 {
   static bool repeatBrief = Config_getBool(REPEAT_BRIEF);
   return ((!briefDescription().isEmpty() && repeatBrief) || !documentation().isEmpty() || !inbodyDocumentation().isEmpty()) &&
-         (m_pageDict->count()!=(uint)numDocMembers());
+         (m_pageDict->count()!=numDocMembers());
 }
 
 // --- Cast functions

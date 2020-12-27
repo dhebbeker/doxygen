@@ -1863,13 +1863,9 @@ void PerlModGenerator::generatePerlModForClass(const ClassDef *cd)
     m_output.closeList();
   }
 
-  ClassSDict *cl = cd->getClassSDict();
-  if (cl)
   {
     m_output.openList("inner");
-    ClassSDict::Iterator cli(*cl);
-    const ClassDef *icd;
-    for (cli.toFirst();(icd=cli.current());++cli)
+    for (const auto &icd : cd->getClasses())
       m_output.openHash()
 	.addFieldQuotedString("name", icd->name())
 	.closeHash();
@@ -1970,26 +1966,20 @@ void PerlModGenerator::generatePerlModForNamespace(const NamespaceDef *nd)
   m_output.openHash()
     .addFieldQuotedString("name", nd->name());
 
-  ClassSDict *cl = nd->getClassSDict();
-  if (cl)
+  if (!nd->getClasses().empty())
   {
     m_output.openList("classes");
-    ClassSDict::Iterator cli(*cl);
-    const ClassDef *cd;
-    for (cli.toFirst();(cd=cli.current());++cli)
+    for (const auto &cd : nd->getClasses())
       m_output.openHash()
 	.addFieldQuotedString("name", cd->name())
 	.closeHash();
     m_output.closeList();
   }
 
-  const NamespaceSDict *nl = nd->getNamespaceSDict();
-  if (nl)
+  if (!nd->getNamespaces().empty())
   {
     m_output.openList("namespaces");
-    NamespaceSDict::Iterator nli(*nl);
-    const NamespaceDef *ind;
-    for (nli.toFirst();(ind=nli.current());++nli)
+    for (const auto &ind : nd->getNamespaces())
       m_output.openHash()
 	.addFieldQuotedString("name", ind->name())
 	.closeHash();
@@ -2116,26 +2106,20 @@ void PerlModGenerator::generatePerlModForGroup(const GroupDef *gd)
     m_output.closeList();
   }
 
-  ClassSDict *cl = gd->getClasses();
-  if (cl)
+  if (!gd->getClasses().empty())
   {
     m_output.openList("classes");
-    ClassSDict::Iterator cli(*cl);
-    const ClassDef *cd;
-    for (cli.toFirst();(cd=cli.current());++cli)
+    for (const auto &cd : gd->getClasses())
       m_output.openHash()
 	.addFieldQuotedString("name", cd->name())
 	.closeHash();
     m_output.closeList();
   }
 
-  NamespaceSDict *nl = gd->getNamespaces();
-  if (nl)
+  if (!gd->getNamespaces().empty())
   {
     m_output.openList("namespaces");
-    NamespaceSDict::Iterator nli(*nl);
-    const NamespaceDef *nd;
-    for (nli.toFirst();(nd=nli.current());++nli)
+    for (const auto &nd : gd->getNamespaces())
       m_output.openHash()
 	.addFieldQuotedString("name", nd->name())
 	.closeHash();
@@ -2214,17 +2198,13 @@ bool PerlModGenerator::generatePerlModOutput()
   m_output.add("$doxydocs=").openHash();
 
   m_output.openList("classes");
-  ClassSDict::Iterator cli(*Doxygen::classSDict);
-  const ClassDef *cd;
-  for (cli.toFirst();(cd=cli.current());++cli)
-    generatePerlModForClass(cd);
+  for (const auto &cd : *Doxygen::classLinkedMap)
+    generatePerlModForClass(cd.get());
   m_output.closeList();
 
   m_output.openList("namespaces");
-  NamespaceSDict::Iterator nli(*Doxygen::namespaceSDict);
-  const NamespaceDef *nd;
-  for (nli.toFirst();(nd=nli.current());++nli)
-    generatePerlModForNamespace(nd);
+  for (const auto &nd : *Doxygen::namespaceLinkedMap)
+    generatePerlModForNamespace(nd.get());
   m_output.closeList();
 
   m_output.openList("files");

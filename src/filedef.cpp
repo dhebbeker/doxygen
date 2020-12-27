@@ -86,8 +86,8 @@ class FileDefImpl : public DefinitionMixin<FileDef>
     virtual MemberList *getMemberList(MemberListType lt) const;
     virtual const QList<MemberList> &getMemberLists() const { return m_memberLists; }
     virtual MemberGroupSDict *getMemberGroupSDict() const { return m_memberGroupSDict; }
-    virtual NamespaceSDict *getNamespaceSDict() const     { return m_namespaceSDict; }
-    virtual ClassSDict *getClassSDict() const             { return m_classSDict; }
+    virtual NamespaceLinkedRefMap getNamespaces() const     { return m_namespaces; }
+    virtual ClassLinkedRefMap getClasses() const   { return m_classes; }
     virtual QCString title() const;
     virtual bool hasDetailedDescription() const;
     virtual QCString fileVersion() const;
@@ -107,8 +107,8 @@ class FileDefImpl : public DefinitionMixin<FileDef>
     virtual void parseSource(ClangTUParser *clangParser);
     virtual void setDiskName(const QCString &name);
     virtual void insertMember(MemberDef *md);
-    virtual void insertClass(ClassDef *cd);
-    virtual void insertNamespace(NamespaceDef *nd);
+    virtual void insertClass(const ClassDef *cd);
+    virtual void insertNamespace(const NamespaceDef *nd);
     virtual void computeAnchors();
     virtual void setPackageDef(PackageDef *pd) { m_package=pd; }
     virtual void setDirDef(DirDef *dd) { m_dir=dd; }
@@ -139,7 +139,7 @@ class FileDefImpl : public DefinitionMixin<FileDef>
     void writeSourceLink(OutputList &ol);
     void writeNamespaceDeclarations(OutputList &ol,const QCString &title,
             bool isConstantGroup);
-    void writeClassDeclarations(OutputList &ol,const QCString &title,ClassSDict *d);
+    void writeClassDeclarations(OutputList &ol,const QCString &title,const ClassLinkedRefMap &list);
     void writeInlineClasses(OutputList &ol);
     void startMemberDeclarations(OutputList &ol);
     void endMemberDeclarations(OutputList &ol);
@@ -147,7 +147,7 @@ class FileDefImpl : public DefinitionMixin<FileDef>
     void endMemberDocumentation(OutputList &ol);
     void writeDetailedDescription(OutputList &ol,const QCString &title);
     void writeBriefDescription(OutputList &ol);
-    void writeClassesToTagFile(FTextStream &t,ClassSDict *d);
+    void writeClassesToTagFile(FTextStream &t,const ClassLinkedRefMap &list);
 
     QDict<IncludeInfo>   *m_includeDict;
     QList<IncludeInfo>   *m_includeList;
@@ -170,11 +170,11 @@ class FileDefImpl : public DefinitionMixin<FileDef>
     DirDef               *m_dir;
     QList<MemberList>     m_memberLists;
     MemberGroupSDict     *m_memberGroupSDict;
-    NamespaceSDict       *m_namespaceSDict;
-    ClassSDict           *m_classSDict;
-    ClassSDict           *m_interfaceSDict;
-    ClassSDict           *m_structSDict;
-    ClassSDict           *m_exceptionSDict;
+    NamespaceLinkedRefMap m_namespaces;
+    ClassLinkedRefMap     m_classes;
+    ClassLinkedRefMap     m_interfaces;
+    ClassLinkedRefMap     m_structs;
+    ClassLinkedRefMap     m_exceptions;
     bool                  m_subGrouping;
 };
 
@@ -226,15 +226,10 @@ FileDefImpl::FileDefImpl(const char *p,const char *nm,
   m_fileName=nm;
   setReference(lref);
   setDiskName(dn?dn:nm);
-  m_classSDict        = 0;
-  m_interfaceSDict    = 0;
-  m_structSDict       = 0;
-  m_exceptionSDict    = 0;
   m_includeList       = 0;
   m_includeDict       = 0;
   m_includedByList    = 0;
   m_includedByDict    = 0;
-  m_namespaceSDict    = 0;
   m_srcDefDict        = 0;
   m_srcMemberDict     = 0;
   m_package           = 0;
@@ -254,15 +249,10 @@ FileDefImpl::FileDefImpl(const char *p,const char *nm,
 /*! destroy the file definition */
 FileDefImpl::~FileDefImpl()
 {
-  delete m_classSDict;
-  delete m_interfaceSDict;
-  delete m_structSDict;
-  delete m_exceptionSDict;
   delete m_includeDict;
   delete m_includeList;
   delete m_includedByDict;
   delete m_includedByList;
-  delete m_namespaceSDict;
   delete m_srcDefDict;
   delete m_srcMemberDict;
   delete m_memberGroupSDict;
@@ -380,40 +370,31 @@ void FileDefImpl::writeTagFile(FTextStream &tagFile)
     {
       case LayoutDocEntry::FileClasses:
         {
-          if (m_classSDict)
-            writeClassesToTagFile(tagFile, m_classSDict);
+          writeClassesToTagFile(tagFile, m_classes);
         }
         break;
       case LayoutDocEntry::FileInterfaces:
         {
-          if (m_interfaceSDict)
-            writeClassesToTagFile(tagFile, m_interfaceSDict);
+          writeClassesToTagFile(tagFile, m_interfaces);
         }
         break;
       case LayoutDocEntry::FileStructs:
         {
-          if (m_structSDict)
-            writeClassesToTagFile(tagFile, m_structSDict);
+          writeClassesToTagFile(tagFile, m_structs);
         }
         break;
       case LayoutDocEntry::FileExceptions:
         {
-          if (m_exceptionSDict)
-            writeClassesToTagFile(tagFile, m_exceptionSDict);
+          writeClassesToTagFile(tagFile, m_exceptions);
         }
         break;
       case LayoutDocEntry::FileNamespaces:
         {
-          if (m_namespaceSDict)
+          for (const auto *nd : m_namespaces)
           {
-            SDict<NamespaceDef>::Iterator ni(*m_namespaceSDict);
-            NamespaceDef *nd;
-            for (ni.toFirst();(nd=ni.current());++ni)
+            if (nd->isLinkableInProject())
             {
-              if (nd->isLinkableInProject())
-              {
-                tagFile << "    <namespace>" << convertToXML(nd->name()) << "</namespace>" << endl;
-              }
+              tagFile << "    <namespace>" << convertToXML(nd->name()) << "</namespace>" << endl;
             }
           }
         }
@@ -569,11 +550,9 @@ void FileDefImpl::writeBriefDescription(OutputList &ol)
   ol.writeSynopsis();
 }
 
-void FileDefImpl::writeClassesToTagFile(FTextStream &tagFile, ClassSDict *d)
+void FileDefImpl::writeClassesToTagFile(FTextStream &tagFile, const ClassLinkedRefMap &list)
 {
-  SDict<ClassDef>::Iterator ci(*d);
-  ClassDef *cd;
-  for (ci.toFirst();(cd=ci.current());++ci)
+  for (const auto &cd : list)
   {
     if (cd->isLinkableInProject())
     {
@@ -719,13 +698,13 @@ void FileDefImpl::writeNamespaceDeclarations(OutputList &ol,const QCString &titl
             bool const isConstantGroup)
 {
   // write list of namespaces
-  if (m_namespaceSDict) m_namespaceSDict->writeDeclaration(ol,title,isConstantGroup);
+  m_namespaces.writeDeclaration(ol,title,isConstantGroup);
 }
 
-void FileDefImpl::writeClassDeclarations(OutputList &ol,const QCString &title,ClassSDict *d)
+void FileDefImpl::writeClassDeclarations(OutputList &ol,const QCString &title,const ClassLinkedRefMap &list)
 {
   // write list of classes
-  if (d) d->writeDeclaration(ol,0,title,FALSE);
+  list.writeDeclaration(ol,0,title,FALSE);
 }
 
 void FileDefImpl::writeInlineClasses(OutputList &ol)
@@ -735,7 +714,7 @@ void FileDefImpl::writeInlineClasses(OutputList &ol)
   bool isEnabled = ol.isEnabled(OutputGenerator::Html);
   ol.enable(OutputGenerator::Html);
 
-  if (m_classSDict) m_classSDict->writeDocumentation(ol,this);
+  m_classes.writeDocumentation(ol,this);
 
   // restore the initial state if needed
   if (!isEnabled) ol.disable(OutputGenerator::Html);
@@ -811,35 +790,35 @@ void FileDefImpl::writeSummaryLinks(OutputList &ol) const
   SrcLangExt lang=getLanguage();
   for (eli.toFirst();(lde=eli.current());++eli)
   {
-    if (lde->kind()==LayoutDocEntry::FileClasses && m_classSDict && m_classSDict->declVisible())
+    if (lde->kind()==LayoutDocEntry::FileClasses && m_classes.declVisible())
     {
       LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
       QCString label = "nested-classes";
       ol.writeSummaryLink(0,label,ls->title(lang),first);
       first=FALSE;
     }
-    else if (lde->kind()==LayoutDocEntry::FileInterfaces && m_interfaceSDict && m_interfaceSDict->declVisible())
+    else if (lde->kind()==LayoutDocEntry::FileInterfaces && m_interfaces.declVisible())
     {
       LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
       QCString label = "interfaces";
       ol.writeSummaryLink(0,label,ls->title(lang),first);
       first=FALSE;
     }
-    else if (lde->kind()==LayoutDocEntry::FileStructs && m_structSDict && m_structSDict->declVisible())
+    else if (lde->kind()==LayoutDocEntry::FileStructs && m_structs.declVisible())
     {
       LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
       QCString label = "structs";
       ol.writeSummaryLink(0,label,ls->title(lang),first);
       first=FALSE;
     }
-    else if (lde->kind()==LayoutDocEntry::FileExceptions && m_exceptionSDict && m_exceptionSDict->declVisible())
+    else if (lde->kind()==LayoutDocEntry::FileExceptions && m_exceptions.declVisible())
     {
       LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
       QCString label = "exceptions";
       ol.writeSummaryLink(0,label,ls->title(lang),first);
       first=FALSE;
     }
-    else if (lde->kind()==LayoutDocEntry::FileNamespaces && m_namespaceSDict && m_namespaceSDict->declVisible())
+    else if (lde->kind()==LayoutDocEntry::FileNamespaces && m_namespaces.declVisible())
     {
       LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
       QCString label = "namespaces";
@@ -970,25 +949,25 @@ void FileDefImpl::writeDocumentation(OutputList &ol)
       case LayoutDocEntry::FileClasses:
         {
           LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
-          writeClassDeclarations(ol,ls->title(lang),m_classSDict);
+          writeClassDeclarations(ol,ls->title(lang),m_classes);
         }
         break;
       case LayoutDocEntry::FileInterfaces:
         {
           LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
-          writeClassDeclarations(ol,ls->title(lang),m_interfaceSDict);
+          writeClassDeclarations(ol,ls->title(lang),m_interfaces);
         }
         break;
       case LayoutDocEntry::FileStructs:
         {
           LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
-          writeClassDeclarations(ol,ls->title(lang),m_structSDict);
+          writeClassDeclarations(ol,ls->title(lang),m_structs);
         }
         break;
       case LayoutDocEntry::FileExceptions:
         {
           LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
-          writeClassDeclarations(ol,ls->title(lang),m_exceptionSDict);
+          writeClassDeclarations(ol,ls->title(lang),m_exceptions);
         }
         break;
       case LayoutDocEntry::FileNamespaces:
@@ -1118,25 +1097,25 @@ void FileDefImpl::writeQuickMemberLinks(OutputList &ol,const MemberDef *currentM
     {
       if (md->getFileDef()==this && md->getNamespaceDef()==0 && md->isLinkable() && !md->isEnumValue())
       {
-        ol.writeString("          <tr><td class=\"navtab\">");
         if (md->isLinkableInProject())
         {
           if (md==currentMd) // selected item => highlight
           {
-            ol.writeString("<a class=\"qindexHL\" ");
+            ol.writeString("          <tr><td class=\"navtabHL\">");
           }
           else
           {
-            ol.writeString("<a class=\"qindex\" ");
+            ol.writeString("          <tr><td class=\"navtab\">");
           }
+          ol.writeString("<a class=\"navtab\" ");
           ol.writeString("href=\"");
           if (createSubDirs) ol.writeString("../../");
           ol.writeString(md->getOutputFileBase()+Doxygen::htmlFileExtension+"#"+md->anchor());
           ol.writeString("\">");
           ol.writeString(convertToHtml(md->localName()));
           ol.writeString("</a>");
+          ol.writeString("</td></tr>\n");
         }
-        ol.writeString("</td></tr>\n");
       }
     }
   }
@@ -1377,62 +1356,36 @@ void FileDefImpl::insertMember(MemberDef *md)
 }
 
 /*! Adds compound definition \a cd to the list of all compounds of this file */
-void FileDefImpl::insertClass(ClassDef *cd)
+void FileDefImpl::insertClass(const ClassDef *cd)
 {
   if (cd->isHidden()) return;
 
-  ClassSDict *d=0;
-  ClassSDict **dd=&m_classSDict;
+  ClassLinkedRefMap &list = m_classes;
 
   if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
   {
     if (cd->compoundType()==ClassDef::Interface)
     {
-      dd = &m_interfaceSDict;
+      list = m_interfaces;
     }
     else if (cd->compoundType()==ClassDef::Struct)
     {
-      dd = &m_structSDict;
+      list = m_structs;
     }
     else if (cd->compoundType()==ClassDef::Exception)
     {
-      dd = &m_exceptionSDict;
+      list = m_exceptions;
     }
   }
 
-  if (*dd==0) *dd = new ClassSDict(17);
-  d = *dd;
-
-  if (Config_getBool(SORT_BRIEF_DOCS))
-  {
-    d->inSort(cd->name(),cd);
-  }
-  else
-  {
-    d->append(cd->name(),cd);
-  }
+  list.add(cd->name(),cd);
 }
 
 /*! Adds namespace definition \a nd to the list of all compounds of this file */
-void FileDefImpl::insertNamespace(NamespaceDef *nd)
+void FileDefImpl::insertNamespace(const NamespaceDef *nd)
 {
   if (nd->isHidden()) return;
-  if (!nd->name().isEmpty() &&
-      (m_namespaceSDict==0 || m_namespaceSDict->find(nd->name())==0))
-  {
-    if (m_namespaceSDict==0)
-    {
-      m_namespaceSDict = new NamespaceSDict;
-    }
-    if (Config_getBool(SORT_BRIEF_DOCS))
-    {
-      m_namespaceSDict->inSort(nd->name(),nd);
-    }
-    else
-    {
-      m_namespaceSDict->append(nd->name(),nd);
-    }
-  }
+  m_namespaces.add(nd->name(),nd);
 }
 
 QCString FileDefImpl::name() const
@@ -2040,6 +1993,27 @@ void FileDefImpl::sortMemberLists()
     }
   }
 
+  if (Config_getBool(SORT_BRIEF_DOCS))
+  {
+    auto classComp = [](const ClassLinkedRefMap::Ptr &c1,const ClassLinkedRefMap::Ptr &c2)
+    {
+      return Config_getBool(SORT_BY_SCOPE_NAME)     ?
+        qstricmp(c1->name(),      c2->name())<0     :
+        qstricmp(c1->className(), c2->className())<0;
+    };
+
+    std::sort(m_classes.begin(),   m_classes.end(),   classComp);
+    std::sort(m_interfaces.begin(),m_interfaces.end(),classComp);
+    std::sort(m_structs.begin(),   m_structs.end(),   classComp);
+    std::sort(m_exceptions.begin(),m_exceptions.end(),classComp);
+
+    auto namespaceComp = [](const NamespaceLinkedRefMap::Ptr &n1,const NamespaceLinkedRefMap::Ptr &n2)
+    {
+      return qstricmp(n1->name(),n2->name())<0;
+    };
+
+    std::sort(m_namespaces.begin(),m_namespaces.end(),namespaceComp);
+  }
 }
 
 MemberList *FileDefImpl::getMemberList(MemberListType lt) const

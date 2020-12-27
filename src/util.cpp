@@ -231,7 +231,7 @@ QCString stripAnonymousNamespaceScope(const QCString &s)
   while ((i=getScopeFragment(s,p,&l))!=-1)
   {
     //printf("Scope fragment %s\n",s.mid(i,l).data());
-    if (Doxygen::namespaceSDict->find(s.left(i+l))!=0)
+    if (Doxygen::namespaceLinkedMap->find(s.left(i+l))!=0)
     {
       if (s.at(i)!='@')
       {
@@ -480,7 +480,7 @@ QCString resolveTypeDef(const Definition *context,const QCString &qualifiedName,
 ClassDef *getClass(const char *n)
 {
   if (n==0 || n[0]=='\0') return 0;
-  return Doxygen::classSDict->find(n);
+  return Doxygen::classLinkedMap->find(n);
 }
 
 NamespaceDef *getResolvedNamespace(const char *name)
@@ -501,11 +501,11 @@ NamespaceDef *getResolvedNamespace(const char *name)
     {
       warn_uncond("possible recursive namespace alias detected for %s!\n",name);
     }
-    return Doxygen::namespaceSDict->find(it->second.data());
+    return Doxygen::namespaceLinkedMap->find(it->second.data());
   }
   else
   {
-    return Doxygen::namespaceSDict->find(name);
+    return Doxygen::namespaceLinkedMap->find(name);
   }
 }
 
@@ -2614,7 +2614,7 @@ bool getDefs(const QCString &scName,
       }
       //printf("Trying namespace %s\n",namespaceName.data());
       if (!namespaceName.isEmpty() &&
-          (fnd=Doxygen::namespaceSDict->find(namespaceName)) &&
+          (fnd=Doxygen::namespaceLinkedMap->find(namespaceName)) &&
           fnd->isLinkable()
          )
       {
@@ -2861,7 +2861,7 @@ static bool getScopeDefs(const char *docScope,const char *scope,
     {
       return TRUE; // class link written => quit
     }
-    else if ((nd=Doxygen::namespaceSDict->find(fullName)) && nd->isLinkable())
+    else if ((nd=Doxygen::namespaceLinkedMap->find(fullName)) && nd->isLinkable())
     {
       return TRUE; // namespace link written => quit
     }
@@ -3249,7 +3249,7 @@ bool resolveLink(/* in */ const char *scName,
 //    resAnchor=cd->anchor();
 //    return TRUE;
 //  }
-  else if ((nd=Doxygen::namespaceSDict->find(linkRef)))
+  else if ((nd=Doxygen::namespaceLinkedMap->find(linkRef)))
   {
     *resContext=nd;
     return TRUE;
@@ -3572,6 +3572,67 @@ bool hasVisibleRoot(const BaseClassList &bcl)
 
 //----------------------------------------------------------------------
 
+// copies the next UTF8 character from input stream into buffer ids
+// returns the size of the character in bytes (or 0 if it is invalid)
+// the character itself will be copied as a UTF-8 encoded string to ids.
+int getUtf8Char(const char *input,char ids[MAX_UTF8_CHAR_SIZE],CaseModifier modifier)
+{
+  int inputLen=1;
+  const unsigned char uc = (unsigned char)*input;
+  bool validUTF8Char = false;
+  if (uc <= 0xf7)
+  {
+    const char* pt = input+1;
+    int l = 0;
+    if ((uc&0x80)==0x00)
+    {
+      switch (modifier)
+      {
+        case CaseModifier::None:    ids[0]=*input;                break;
+        case CaseModifier::ToUpper: ids[0]=(char)toupper(*input); break;
+        case CaseModifier::ToLower: ids[0]=(char)tolower(*input); break;
+      }
+      l=1; // 0xxx.xxxx => normal single byte ascii character
+    }
+    else
+    {
+      ids[ 0 ] = *input;
+      if ((uc&0xE0)==0xC0)
+      {
+        l=2; // 110x.xxxx: >=2 byte character
+      }
+      if ((uc&0xF0)==0xE0)
+      {
+        l=3; // 1110.xxxx: >=3 byte character
+      }
+      if ((uc&0xF8)==0xF0)
+      {
+        l=4; // 1111.0xxx: >=4 byte character
+      }
+    }
+    validUTF8Char = l>0;
+    for (int m=1; m<l && validUTF8Char; ++m)
+    {
+      unsigned char ct = (unsigned char)*pt;
+      if (ct==0 || (ct&0xC0)!=0x80) // invalid unicode character
+      {
+        validUTF8Char=false;
+      }
+      else
+      {
+        ids[ m ] = *pt++;
+      }
+    }
+    if (validUTF8Char) // got a valid unicode character
+    {
+      ids[ l ] = 0;
+      inputLen=l;
+    }
+  }
+  return inputLen;
+}
+
+
 // note that this function is not reentrant due to the use of static growBuf!
 QCString escapeCharsInString(const char *name,bool allowDots,bool allowUnderscore)
 {
@@ -3580,7 +3641,7 @@ QCString escapeCharsInString(const char *name,bool allowDots,bool allowUnderscor
   if (name==0) return "";
   GrowBuf growBuf;
   signed char c;
-  const signed char *p=(const signed char*)name;
+  const char *p=name;
   while ((c=*p++)!=0)
   {
     switch(c)
@@ -3616,54 +3677,25 @@ QCString escapeCharsInString(const char *name,bool allowDots,bool allowUnderscor
       default:
                 if (c<0)
                 {
-                  char ids[5];
-                  const unsigned char uc = (unsigned char)c;
-                  bool doEscape = TRUE;
-                  if (allowUnicodeNames && uc <= 0xf7)
+                  char ids[MAX_UTF8_CHAR_SIZE];
+                  bool doEscape = true;
+                  if (allowUnicodeNames)
                   {
-                    const signed char* pt = p;
-                    ids[ 0 ] = c;
-                    int l = 0;
-                    if ((uc&0xE0)==0xC0)
+                    int charLen = getUtf8Char(p-1,ids);
+                    if (charLen>0)
                     {
-                      l=2; // 11xx.xxxx: >=2 byte character
-                    }
-                    if ((uc&0xF0)==0xE0)
-                    {
-                      l=3; // 111x.xxxx: >=3 byte character
-                    }
-                    if ((uc&0xF8)==0xF0)
-                    {
-                      l=4; // 1111.xxxx: >=4 byte character
-                    }
-                    doEscape = l==0;
-                    for (int m=1; m<l && !doEscape; ++m)
-                    {
-                      unsigned char ct = (unsigned char)*pt;
-                      if (ct==0 || (ct&0xC0)!=0x80) // invalid unicode character
-                      {
-                        doEscape=TRUE;
-                      }
-                      else
-                      {
-                        ids[ m ] = *pt++;
-                      }
-                    }
-                    if ( !doEscape ) // got a valid unicode character
-                    {
-                      ids[ l ] = 0;
-                      growBuf.addStr( ids );
-                      p += l - 1;
+                      growBuf.addStr(ids);
+                      p+=charLen-1;
+                      doEscape = false;
                     }
                   }
                   if (doEscape) // not a valid unicode char or escaping needed
                   {
-                    static char map[] = "0123456789ABCDEF";
                     unsigned char id = (unsigned char)c;
                     ids[0]='_';
                     ids[1]='x';
-                    ids[2]=map[id>>4];
-                    ids[3]=map[id&0xF];
+                    ids[2]=hex[id>>4];
+                    ids[3]=hex[id&0xF];
                     ids[4]=0;
                     growBuf.addStr(ids);
                   }
@@ -4887,10 +4919,14 @@ PageDef *addRelatedPage(const char *name,const QCString &ptitle,
 {
   PageDef *pd=0;
   //printf("addRelatedPage(name=%s gd=%p)\n",name,gd);
+  QCString title=ptitle.stripWhiteSpace();
   if ((pd=Doxygen::pageSDict->find(name)) && !tagInfo)
   {
-    if (!xref) warn(fileName,startLine,"multiple use of page label '%s', (other occurrence: %s, line: %d)",
+    if (!xref && !title.isEmpty() && pd->title()!=title)
+    {
+      warn(fileName,startLine,"multiple use of page label '%s', (other occurrence: %s, line: %d)",
          name,pd->docFile().data(),pd->getStartBodyLine());
+    }
     // append documentation block to the page.
     pd->setDocumentation(doc,fileName,docLine);
     //printf("Adding page docs '%s' pi=%p name=%s\n",doc.data(),pd,name);
@@ -4905,7 +4941,6 @@ PageDef *addRelatedPage(const char *name,const QCString &ptitle,
     else if (baseName.right(Doxygen::htmlFileExtension.length())==Doxygen::htmlFileExtension)
       baseName=baseName.left(baseName.length()-Doxygen::htmlFileExtension.length());
 
-    QCString title=ptitle.stripWhiteSpace();
     pd=createPageDef(fileName,docLine,baseName,doc,title);
     pd->setBodySegment(startLine,startLine,-1);
 
@@ -5299,7 +5334,7 @@ QCString latexFilterURL(const char *s)
   if (s==0) return "";
   QGString result;
   FTextStream t(&result);
-  const char *p=s;
+  const signed char *p=(const signed char*)s;
   char c;
   while ((c=*p++))
   {
@@ -5309,7 +5344,15 @@ QCString latexFilterURL(const char *s)
       case '%':  t << "\\%"; break;
       case '\\':  t << "\\\\"; break;
       default:
-        t << c;
+        if (c<0)
+        {
+          unsigned char id = (unsigned char)c;
+          t << "\\%" << hex[id>>4] << hex[id&0xF];
+        }
+        else
+        {
+          t << c;
+        }
         break;
     }
   }
@@ -6686,7 +6729,10 @@ bool isURL(const QCString &url)
 {
   QCString loc_url = url.stripWhiteSpace();
   return loc_url.left(5)=="http:" || loc_url.left(6)=="https:" ||
-         loc_url.left(4)=="ftp:"  || loc_url.left(5)=="file:";
+         loc_url.left(4)=="ftp:"  || loc_url.left(5)=="ftps:"  ||
+         loc_url.left(5)=="sftp:" || loc_url.left(5)=="file:"  ||
+         loc_url.left(5)=="news:" || loc_url.left(4)=="irc:"   ||
+         loc_url.left(5)=="ircs:";
 }
 /** Corrects URL \a url according to the relative path \a relPath.
  *  Returns the corrected URL. For absolute URLs no correction will be done.
@@ -6914,9 +6960,7 @@ uint getUtf8CodeToUpper( const QCString& s, int idx )
 //
 bool namespaceHasNestedNamespace(const NamespaceDef *nd)
 {
-  NamespaceSDict::Iterator cnli(*nd->getNamespaceSDict());
-  const NamespaceDef *cnd;
-  for (cnli.toFirst();(cnd=cnli.current());++cnli)
+  for (const auto &cnd : nd->getNamespaces())
   {
     if (cnd->isLinkableInProject() && !cnd->isAnonymous())
     {
@@ -6929,48 +6973,38 @@ bool namespaceHasNestedNamespace(const NamespaceDef *nd)
 bool namespaceHasNestedClass(const NamespaceDef *nd,bool filterClasses,ClassDef::CompoundType ct)
 {
   //printf(">namespaceHasVisibleChild(%s,includeClasses=%d)\n",nd->name().data(),includeClasses);
-  if (nd->getNamespaceSDict())
+  for (const auto &cnd : nd->getNamespaces())
   {
-    NamespaceSDict::Iterator cnli(*nd->getNamespaceSDict());
-    const NamespaceDef *cnd;
-    for (cnli.toFirst();(cnd=cnli.current());++cnli)
+    if (namespaceHasNestedClass(cnd,filterClasses,ct))
     {
-      if (namespaceHasNestedClass(cnd,filterClasses,ct))
-      {
-        //printf("<namespaceHasVisibleChild(%s,includeClasses=%d): case2\n",nd->name().data(),includeClasses);
-        return TRUE;
-      }
+      //printf("<namespaceHasVisibleChild(%s,includeClasses=%d): case2\n",nd->name().data(),includeClasses);
+      return TRUE;
     }
   }
 
-  const ClassSDict *d = nd->getClassSDict();
+  ClassLinkedRefMap list = nd->getClasses();
   if (filterClasses)
   {
     if (ct == ClassDef::Interface)
     {
-      d = nd->getInterfaceSDict();
+      list = nd->getInterfaces();
     }
     else if (ct == ClassDef::Struct)
     {
-      d = nd->getStructSDict();
+      list = nd->getStructs();
     }
     else if (ct == ClassDef::Exception)
     {
-      d = nd->getExceptionSDict();
+      list = nd->getExceptions();
     }
   }
 
-  if (d)
+  for (const auto &cd : list)
   {
-    ClassSDict::Iterator cli(*d);
-    const ClassDef *cd;
-    for (;(cd=cli.current());++cli)
+    if (cd->isLinkableInProject() && cd->templateMaster()==0)
     {
-      if (cd->isLinkableInProject() && cd->templateMaster()==0)
-      {
-        //printf("<namespaceHasVisibleChild(%s,includeClasses=%d): case3\n",nd->name().data(),includeClasses);
-        return TRUE;
-      }
+      //printf("<namespaceHasVisibleChild(%s,includeClasses=%d): case3\n",nd->name().data(),includeClasses);
+      return TRUE;
     }
   }
   return FALSE;

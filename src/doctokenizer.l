@@ -129,6 +129,7 @@ QCString extractPartAfterNewLine(const QCString &text)
   int nl2 = text.findRev("\\ilinebr");
   if (nl2!=-1)
   {
+    if (text.at(nl2+8)==' ') nl2++; // skip space after \\ilinebr
     return text.mid(nl2+8);
   }
   return text;
@@ -384,9 +385,9 @@ OLISTITEM {BLANK}*[1-9][0-9]*"."{BLANK}
 ENDLIST   {BLANK}*"."{BLANK}*\n
 ATTRNAME  [a-z_A-Z\x80-\xFF][:a-z_A-Z0-9\x80-\xFF\-]*
 ATTRIB    {ATTRNAME}{WS}*("="{WS}*(("\""[^\"]*"\"")|("'"[^\']*"'")|[^ \t\r\n'"><]+))?
-URLCHAR   [a-z_A-Z0-9\!\~\,\:\;\'\$\?\@\&\%\#\.\-\+\/\=]
+URLCHAR   [a-z_A-Z0-9\!\~\,\:\;\'\$\?\@\&\%\#\.\-\+\/\=\x80-\xFF]
 URLMASK   ({URLCHAR}+([({]{URLCHAR}*[)}])?)+
-URLPROTOCOL ("http:"|"https:"|"ftp:"|"file:"|"news:"|"irc")
+URLPROTOCOL ("http:"|"https:"|"ftp:"|"ftps:"|"sftp:"|"file:"|"news:"|"irc:"|"ircs:")
 FILESCHAR [a-z_A-Z0-9\\:\\\/\-\+&#@]
 FILEECHAR [a-z_A-Z0-9\-\+&#@]
 HFILEMASK ("."{FILESCHAR}*{FILEECHAR}+)+
@@ -810,7 +811,7 @@ RCSID "$"("Author"|"Date"|"Header"|"Id"|"Locker"|"Log"|"Name"|"RCSfile"|"Revisio
                          }
                          lineCount(yytext,yyleng);
                        }
-<St_Para>({BLANK}*\n)+{BLANK}*\n{BLANK}* {
+<St_Para>({BLANK}*(\n|"\\ilinebr"))+{BLANK}*(\n|"\\ilinebr"){BLANK}* {
                          lineCount(yytext,yyleng);
                          if (g_insidePre)
                          {

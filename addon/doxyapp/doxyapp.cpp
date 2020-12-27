@@ -38,6 +38,7 @@
 #include "classlist.h"
 #include "config.h"
 #include "filename.h"
+#include "version.h"
 
 class XRefDummyCodeGenerator : public CodeOutputInterface
 {
@@ -185,9 +186,9 @@ static void lookupSymbol(Definition *d)
       case Definition::TypeNamespace:
         {
           NamespaceDef *nd = dynamic_cast<NamespaceDef*>(d);
-          printf("Kind: Namespace: contains %d classes and %d namespaces\n",
-              nd->getClassSDict() ? nd->getClassSDict()->count() : 0,
-              nd->getNamespaceSDict() ? nd->getNamespaceSDict()->count() : 0);
+          printf("Kind: Namespace: contains %zu classes and %zu namespaces\n",
+              nd->getClasses().size(),
+              nd->getNamespaces().size());
         }
         break;
       case Definition::TypeMember:
@@ -225,7 +226,23 @@ int main(int argc,char **argv)
 {
   char cmd[256];
 
-  if (argc<2)
+  int locArgc = argc;
+
+  if (locArgc == 2)
+  {
+    if (!strcmp(argv[1],"--help"))
+    {
+      printf("Usage: %s [source_file | source_dir]\n",argv[0]);
+      exit(0);
+    }
+    else if (!strcmp(argv[1],"--version"))
+    {
+      printf("%s version: %s\n",argv[0],getFullVersion());
+      exit(0);
+    }
+  }
+
+  if (locArgc!=2)
   {
     printf("Usage: %s [source_file | source_dir]\n",argv[0]);
     exit(1);

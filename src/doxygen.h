@@ -49,11 +49,11 @@ class GroupDef;
 class GroupSDict;
 class FileDef;
 class ClassDef;
-class ClassSDict;
+class ClassLinkedMap;
 class GenericsSDict;
 class MemberNameLinkedMap;
 class FileNameLinkedMap;
-class NamespaceSDict;
+class NamespaceLinkedMap;
 class NamespaceDef;
 class DirSDict;
 class DirRelation;
@@ -95,8 +95,8 @@ extern QCString g_spaces;
 class Doxygen
 {
   public:
-    static ClassSDict               *classSDict;
-    static ClassSDict               *hiddenClasses;
+    static ClassLinkedMap           *classLinkedMap;
+    static ClassLinkedMap           *hiddenClassLinkedMap;
     static PageSDict                *exampleSDict;
     static PageSDict                *pageSDict;
     static PageDef                  *mainPage;
@@ -113,7 +113,7 @@ class Doxygen
     static MemberNameLinkedMap      *functionNameLinkedMap;
     static StringUnorderedMap        namespaceAliasMap;
     static GroupSDict               *groupSDict;
-    static NamespaceSDict           *namespaceSDict;
+    static NamespaceLinkedMap       *namespaceLinkedMap;
     static StringDict                tagDestinationDict;
     static StringDict                aliasDict;
     static QIntDict<MemberGroupInfo> memGrpInfoDict;
@@ -139,7 +139,6 @@ class Doxygen
     static int                       subpageNestingLevel;
     static QCString                  spaces;
     static bool                      generatingXmlOutput;
-    static GenericsSDict            *genericsDict;
     static DefinesPerFileList        macroDefinitions;
     static bool                      clangAssistedParsing;
 };

@@ -109,31 +109,21 @@ void DotGroupCollaboration::buildGraph(const GroupDef* gd)
   addMemberList( gd->getMemberList(MemberListType_allMembersList) );
 
   // Add classes
-  if ( gd->getClasses() && gd->getClasses()->count() )
+  for (const auto &def : gd->getClasses())
   {
-    ClassSDict::Iterator defli(*gd->getClasses());
-    ClassDef *def;
-    for (;(def=defli.current());++defli)
+    tmp_url = def->getReference()+"$"+def->getOutputFileBase()+Doxygen::htmlFileExtension;
+    if (!def->anchor().isEmpty())
     {
-      tmp_url = def->getReference()+"$"+def->getOutputFileBase()+Doxygen::htmlFileExtension;
-      if (!def->anchor().isEmpty())
-      {
-        tmp_url+="#"+def->anchor();
-      }
-      addCollaborationMember( def, tmp_url, DotGroupCollaboration::tclass );
+      tmp_url+="#"+def->anchor();
     }
+    addCollaborationMember( def, tmp_url, DotGroupCollaboration::tclass );
   }
 
   // Add namespaces
-  if ( gd->getNamespaces() && gd->getNamespaces()->count() )
+  for (const auto &def : gd->getNamespaces())
   {
-    NamespaceSDict::Iterator defli(*gd->getNamespaces());
-    NamespaceDef *def;
-    for (;(def=defli.current());++defli)
-    {
-      tmp_url = def->getReference()+"$"+def->getOutputFileBase()+Doxygen::htmlFileExtension;
-      addCollaborationMember( def, tmp_url, DotGroupCollaboration::tnamespace );
-    }
+    tmp_url = def->getReference()+"$"+def->getOutputFileBase()+Doxygen::htmlFileExtension;
+    addCollaborationMember( def, tmp_url, DotGroupCollaboration::tnamespace );
   }
 
   // Add files

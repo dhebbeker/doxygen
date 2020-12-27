@@ -25,7 +25,6 @@
 #include "type_utils.hpp"
 
 class FileList;
-class ClassSDict;
 class QStrList;
 class FileDef;
 class OutputList;

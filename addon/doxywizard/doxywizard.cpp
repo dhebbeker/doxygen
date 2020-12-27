@@ -388,7 +388,7 @@ void MainWindow::clearRecent()
     m_recentFiles.clear();
     for (int i=0;i<MAX_RECENT_FILES;i++)
     {
-      m_settings.setValue(QString::fromLatin1("recent/config%1").arg(i++),QString::fromLatin1(""));
+      m_settings.setValue(QString::fromLatin1("recent/config%1").arg(i),QString::fromLatin1(""));
     }
     m_clearRecent->setEnabled(false);
     m_recentMenu->setEnabled(false);
@@ -753,14 +753,21 @@ bool MainWindow::discardUnsavedChanges(bool saveOption)
 
 void MainWindow::outputLogStart()
 {
+  m_outputLogTextCount = 0;
   m_outputLog->clear();
 }
 void MainWindow::outputLogText(QString text)
 {
+  m_outputLogTextCount++;
   m_outputLog->append(APPQT(text));
 }
 void MainWindow::outputLogFinish()
 {
+  if (m_outputLogTextCount > 0)
+  {
+    selectRunTab();
+  }
+
   m_outputLog->ensureCursorVisible();
   m_saveLog->setEnabled(true);
 }

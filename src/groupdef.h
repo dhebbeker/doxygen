@@ -27,7 +27,8 @@
 
 class MemberList;
 class FileList;
-class ClassSDict;
+class ClassLinkedRefMap;
+class NamespaceLinkedRefMap;
 class FileDef;
 class ClassDef;
 class NamespaceDef;
@@ -70,7 +71,7 @@ class GroupDef : public DefinitionMutable, public Definition
     virtual void writeMemberPages(OutputList &ol) = 0;
     virtual void writeQuickMemberLinks(OutputList &ol,const MemberDef *currentMd) const = 0;
     virtual void writeTagFile(FTextStream &) = 0;
-    virtual int  numDocMembers() const = 0;
+    virtual size_t numDocMembers() const = 0;
     virtual bool isLinkableInProject() const = 0;
     virtual bool isLinkable() const = 0;
     virtual bool isASubGroup() const = 0;
@@ -95,8 +96,8 @@ class GroupDef : public DefinitionMutable, public Definition
     virtual MemberGroupSDict *getMemberGroupSDict() const = 0;
 
     virtual FileList *      getFiles() const = 0;
-    virtual ClassSDict *    getClasses() const = 0;
-    virtual NamespaceSDict * getNamespaces() const = 0;
+    virtual ClassLinkedRefMap getClasses() const = 0;
+    virtual NamespaceLinkedRefMap getNamespaces() const = 0;
     virtual GroupList *     getSubGroups() const = 0;
     virtual PageSDict *     getPages() const = 0;
     virtual const DirList & getDirs() const = 0;

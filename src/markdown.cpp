@@ -1649,7 +1649,7 @@ static bool isFencedCodeBlock(const char *data,int size,int refIndent,
   {
     if (data[i]==tildaChar)
     {
-      end=i-1;
+      end=i;
       int endTildes=0;
       while (i<size && data[i]==tildaChar) endTildes++,i++;
       while (i<size && data[i]==' ') i++;
@@ -1693,7 +1693,12 @@ static bool isCodeBlock(const char *data,int offset,int size,int &indent)
   // search back 3 lines and remember the start of lines -1 and -2
   while (i>0 && nl<3)
   {
-    if (data[i-offset-1]=='\n') nl_pos[nl++]=i-offset;
+    int j = i-offset-1;
+    int nl_size = isNewline(data+j);
+    if (nl_size>0)
+    {
+      nl_pos[nl++]=j+nl_size;
+    }
     i--;
   }
 
@@ -1717,8 +1722,8 @@ static bool isCodeBlock(const char *data,int offset,int size,int &indent)
     // determine the indent of line -2
     indent=computeIndentExcludingListMarkers(data+nl_pos[2],nl_pos[1]-nl_pos[2]);
 
-    //printf(">isCodeBlock local_indent %d>=%d+4=%d\n",
-    //    indent0,indent2,indent0>=indent2+4);
+    //printf(">isCodeBlock local_indent %d>=%d+%d=%d\n",
+    //    indent0,indent,codeBlockIndent,indent0>=indent+codeBlockIndent);
     // if the difference is >4 spaces -> code block
     return indent0>=indent+codeBlockIndent;
   }
@@ -2068,7 +2073,7 @@ void Markdown::writeOneLineHeaderOrRuler(const char *data,int size)
     {
       if (!id.isEmpty())
       {
-        m_out.addStr("\\anchor "+id+"\n");
+        m_out.addStr("\\anchor "+id+"\\ilinebr ");
       }
       hTag.sprintf("h%d",level);
       m_out.addStr("<"+hTag+">");
@@ -2152,7 +2157,7 @@ int Markdown::writeCodeBlock(const char *data,int size,int refIndent)
   TRACE(data);
   int i=0,end;
   //printf("writeCodeBlock: data={%s}\n",QCString(data).left(size).data());
-  // no need for \ilinebr here as the prvious like was empty and was skipped
+  // no need for \ilinebr here as the previous line was empty and was skipped
   m_out.addStr("@verbatim\n");
   int emptyLines=0;
   while (i<size)
@@ -2286,7 +2291,6 @@ void Markdown::writeFencedCodeBlock(const char *data,const char *lng,
     m_out.addStr("{"+lang+"}");
   }
   addStrEscapeUtf8Nbsp(data+blockStart,blockEnd-blockStart);
-  m_out.addStr(" ");
   m_out.addStr("@endcode");
 }
 

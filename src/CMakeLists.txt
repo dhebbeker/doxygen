@@ -100,14 +100,6 @@ add_custom_command(
 )
 set_source_files_properties(${GENERATED_SRC}/resources.cpp PROPERTIES GENERATED 1)
 
-# layout_default.xml
-add_custom_command(
-    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/to_c_cmd.py < ${CMAKE_CURRENT_LIST_DIR}/layout_default.xml > ${GENERATED_SRC}/layout_default.xml.h
-    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/layout_default.xml ${CMAKE_CURRENT_LIST_DIR}/to_c_cmd.py
-    OUTPUT  ${GENERATED_SRC}/layout_default.xml.h
-)
-set_source_files_properties(${GENERATED_SRC}/layout_default.xml.h PROPERTIES GENERATED 1)
-
 set(LEX_FILES scanner 
     code
     pyscanner
@@ -122,6 +114,7 @@ set(LEX_FILES scanner
     commentcnv
     commentscan
     constexp
+    xml
     xmlcode
     sqlcode
     configimpl)
@@ -197,6 +190,7 @@ add_library(doxymain STATIC
     ${GENERATED_SRC}/scanner.l.h
     ${GENERATED_SRC}/sqlcode.l.h
     ${GENERATED_SRC}/vhdlcode.l.h
+    ${GENERATED_SRC}/xml.l.h
     ${GENERATED_SRC}/xmlcode.l.h
     ${GENERATED_SRC}/code.cpp
     ${GENERATED_SRC}/commentcnv.cpp
@@ -212,12 +206,12 @@ add_library(doxymain STATIC
     ${GENERATED_SRC}/scanner.cpp
     ${GENERATED_SRC}/sqlcode.cpp
     ${GENERATED_SRC}/vhdlcode.cpp
+    ${GENERATED_SRC}/xml.cpp
     ${GENERATED_SRC}/xmlcode.cpp
     #
     ${GENERATED_SRC}/ce_parse.cpp
     # custom generated files
     ${GENERATED_SRC}/lang_cfg.h
-    ${GENERATED_SRC}/layout_default.xml.h
     ${GENERATED_SRC}/ce_parse.h
     ${GENERATED_SRC}/resources.cpp
     #

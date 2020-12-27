@@ -1000,14 +1000,13 @@ void LatexGenerator::startIndexSection(IndexSections is)
       {
         GroupSDict::Iterator gli(*Doxygen::groupSDict);
         GroupDef *gd;
-        bool found=FALSE;
-        for (gli.toFirst();(gd=gli.current()) && !found;++gli)
+        for (gli.toFirst();(gd=gli.current());++gli)
         {
           if (!gd->isReference())
           {
             if (compactLatex) t << "\\doxysection"; else t << "\\chapter";
             t << "{"; //Module Documentation}\n";
-            found=TRUE;
+            break;
           }
         }
       }
@@ -1016,40 +1015,33 @@ void LatexGenerator::startIndexSection(IndexSections is)
       {
         SDict<DirDef>::Iterator dli(*Doxygen::directories);
         DirDef *dd;
-        bool found=FALSE;
-        for (dli.toFirst();(dd=dli.current()) && !found;++dli)
+        for (dli.toFirst();(dd=dli.current());++dli)
         {
           if (dd->isLinkableInProject())
           {
             if (compactLatex) t << "\\doxysection"; else t << "\\chapter";
             t << "{"; //Module Documentation}\n";
-            found=TRUE;
+            break;
           }
         }
       }
       break;
     case isNamespaceDocumentation:
       {
-        NamespaceSDict::Iterator nli(*Doxygen::namespaceSDict);
-        NamespaceDef *nd;
-        bool found=FALSE;
-        for (nli.toFirst();(nd=nli.current()) && !found;++nli)
+        for (const auto &nd : *Doxygen::namespaceLinkedMap)
         {
           if (nd->isLinkableInProject() && !nd->isAlias())
           {
             if (compactLatex) t << "\\doxysection"; else t << "\\chapter";
             t << "{"; // Namespace Documentation}\n":
-            found=TRUE;
+            break;
           }
         }
       }
       break;
     case isClassDocumentation:
       {
-        ClassSDict::Iterator cli(*Doxygen::classSDict);
-        ClassDef *cd=0;
-        bool found=FALSE;
-        for (cli.toFirst();(cd=cli.current()) && !found;++cli)
+        for (const auto &cd : *Doxygen::classLinkedMap)
         {
           if (cd->isLinkableInProject() &&
               cd->templateMaster()==0 &&
@@ -1059,7 +1051,7 @@ void LatexGenerator::startIndexSection(IndexSections is)
           {
             if (compactLatex) t << "\\doxysection"; else t << "\\chapter";
             t << "{"; //Compound Documentation}\n";
-            found=TRUE;
+            break;
           }
         }
       }
@@ -1200,35 +1192,25 @@ void LatexGenerator::endIndexSection(IndexSections is)
       break;
     case isNamespaceDocumentation:
       {
-        NamespaceSDict::Iterator nli(*Doxygen::namespaceSDict);
-        NamespaceDef *nd;
         bool found=FALSE;
-        for (nli.toFirst();(nd=nli.current()) && !found;++nli)
+        for (const auto &nd : *Doxygen::namespaceLinkedMap)
         {
           if (nd->isLinkableInProject() && !nd->isAlias())
           {
-            t << "}\n\\input{" << nd->getOutputFileBase() << "}\n";
-            found=TRUE;
+            if (!found)
+            {
+              t << "}\n";
+              found=true;
+            }
+            t << "\\input{" << nd->getOutputFileBase() << "}\n";
           }
-        }
-        while ((nd=nli.current()))
-        {
-          if (nd->isLinkableInProject() && !nd->isAlias())
-          {
-            //if (compactLatex) t << "\\input"; else t << "\\include";
-            t << "\\input";
-            t << "{" << nd->getOutputFileBase() << "}\n";
-          }
-          ++nli;
         }
       }
       break;
     case isClassDocumentation:
       {
-        ClassSDict::Iterator cli(*Doxygen::classSDict);
-        ClassDef *cd=0;
         bool found=FALSE;
-        for (cli.toFirst();(cd=cli.current()) && !found;++cli)
+        for (const auto &cd : *Doxygen::classLinkedMap)
         {
           if (cd->isLinkableInProject() &&
               cd->templateMaster()==0 &&
@@ -1236,21 +1218,12 @@ void LatexGenerator::endIndexSection(IndexSections is)
              !cd->isAlias()
              )
           {
-            t << "}\n\\input{" << cd->getOutputFileBase() << "}\n";
-            found=TRUE;
-          }
-        }
-        for (;(cd=cli.current());++cli)
-        {
-          if (cd->isLinkableInProject() &&
-              cd->templateMaster()==0 &&
-             !cd->isEmbeddedInOuterScope() &&
-             !cd->isAlias()
-             )
-          {
-            //if (compactLatex) t << "\\input"; else t << "\\include";
-            t << "\\input";
-            t << "{" << cd->getOutputFileBase() << "}\n";
+            if (!found)
+            {
+              t << "}\n"; // end doxysection or chapter title
+              found=TRUE;
+            }
+            t << "\\input{" << cd->getOutputFileBase() << "}\n";
           }
         }
       }
@@ -1266,24 +1239,14 @@ void LatexGenerator::endIndexSection(IndexSections is)
             {
               if (isFirst)
               {
-                t << "}\n\\input{" << fd->getOutputFileBase() << "}\n";
-                if (sourceBrowser && m_prettyCode && fd->generateSourceFile())
-                {
-                  //t << "\\include{" << fd->getSourceFileBase() << "}\n";
-                  t << "\\input{" << fd->getSourceFileBase() << "}\n";
-                }
-                isFirst=FALSE;
+                t << "}\n"; // end doxysection or chapter title
               }
-              else
+              isFirst=FALSE;
+              t << "\\input{" << fd->getOutputFileBase() << "}\n";
+              if (sourceBrowser && m_prettyCode && fd->generateSourceFile())
               {
-                //if (compactLatex) t << "\\input" ; else t << "\\include";
-                t << "\\input" ;
-                t << "{" << fd->getOutputFileBase() << "}\n";
-                if (sourceBrowser && m_prettyCode && fd->generateSourceFile())
-                {
-                  //t << "\\include{" << fd->getSourceFileBase() << "}\n";
-                  t << "\\input{" << fd->getSourceFileBase() << "}\n";
-                }
+                //t << "\\include{" << fd->getSourceFileBase() << "}\n";
+                t << "\\input{" << fd->getSourceFileBase() << "}\n";
               }
             }
           }

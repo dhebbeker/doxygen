@@ -473,13 +473,12 @@ void RTFGenerator::startIndexSection(IndexSections is)
         //Module Documentation
         GroupSDict::Iterator gli(*Doxygen::groupSDict);
         GroupDef *gd;
-        bool found=FALSE;
-        for (gli.toFirst();(gd=gli.current()) && !found;++gli)
+        for (gli.toFirst();(gd=gli.current());++gli)
         {
           if (!gd->isReference())
           {
             beginRTFChapter();
-            found=TRUE;
+            break;
           }
         }
       }
@@ -489,13 +488,12 @@ void RTFGenerator::startIndexSection(IndexSections is)
         //Directory Documentation
         SDict<DirDef>::Iterator dli(*Doxygen::directories);
         DirDef *dd;
-        bool found=FALSE;
-        for (dli.toFirst();(dd=dli.current()) && !found;++dli)
+        for (dli.toFirst();(dd=dli.current());++dli)
         {
           if (dd->isLinkableInProject())
           {
             beginRTFChapter();
-            found=TRUE;
+            break;
           }
         }
       }
@@ -503,15 +501,12 @@ void RTFGenerator::startIndexSection(IndexSections is)
     case isNamespaceDocumentation:
       {
         // Namespace Documentation
-        NamespaceSDict::Iterator nli(*Doxygen::namespaceSDict);
-        NamespaceDef *nd;
-        bool found=FALSE;
-        for (nli.toFirst();(nd=nli.current()) && !found;++nli)
+        for (const auto &nd : *Doxygen::namespaceLinkedMap)
         {
           if (nd->isLinkableInProject())
           {
             beginRTFChapter();
-            found=TRUE;
+            break;
           }
         }
       }
@@ -519,10 +514,7 @@ void RTFGenerator::startIndexSection(IndexSections is)
     case isClassDocumentation:
       {
         //Compound Documentation
-        ClassSDict::Iterator cli(*Doxygen::classSDict);
-        ClassDef *cd=0;
-        bool found=FALSE;
-        for (cli.toFirst();(cd=cli.current()) && !found;++cli)
+        for (const auto &cd : *Doxygen::classLinkedMap)
         {
           if (cd->isLinkableInProject() &&
               cd->templateMaster()==0 &&
@@ -531,7 +523,7 @@ void RTFGenerator::startIndexSection(IndexSections is)
              )
           {
             beginRTFChapter();
-            found=TRUE;
+            break;
           }
         }
       }
@@ -553,6 +545,10 @@ void RTFGenerator::startIndexSection(IndexSections is)
                 break;
               }
             }
+          }
+          if (!isFirst)
+          {
+            break;
           }
         }
       }
@@ -779,39 +775,27 @@ void RTFGenerator::endIndexSection(IndexSections is)
       break;
     case isNamespaceDocumentation:
       {
-        NamespaceSDict::Iterator nli(*Doxygen::namespaceSDict);
-        NamespaceDef *nd;
-        bool found=FALSE;
-        for (nli.toFirst();(nd=nli.current()) && !found;++nli)
+        bool first=true;
+        for (const auto &nd : *Doxygen::namespaceLinkedMap)
         {
           if (nd->isLinkableInProject() && !nd->isAlias())
           {
             t << "\\par " << rtf_Style_Reset << endl;
-            t << "{\\field\\fldedit{\\*\\fldinst INCLUDETEXT \"";
-            t << nd->getOutputFileBase();
-            t << ".rtf\" \\\\*MERGEFORMAT}{\\fldrslt includedstuff}}\n";
-            found=TRUE;
-          }
-        }
-        while ((nd=nli.current()))
-        {
-          if (nd->isLinkableInProject() && !nd->isAlias())
-          {
-            t << "\\par " << rtf_Style_Reset << endl;
-            beginRTFSection();
+            if (!first)
+            {
+              beginRTFSection();
+            }
+            first=false;
             t << "{\\field\\fldedit{\\*\\fldinst INCLUDETEXT \"";
             t << nd->getOutputFileBase();
             t << ".rtf\" \\\\*MERGEFORMAT}{\\fldrslt includedstuff}}\n";
           }
-          ++nli;
         }
       }
       break;
     case isClassDocumentation:
       {
-        ClassSDict::Iterator cli(*Doxygen::classSDict);
-        ClassDef *cd=0;
-        bool found=FALSE;
+        bool first=true;
         if (fortranOpt)
         {
           t << "{\\tc \\v " << theTranslator->trTypeDocumentation() << "}"<< endl;
@@ -820,7 +804,7 @@ void RTFGenerator::endIndexSection(IndexSections is)
         {
           t << "{\\tc \\v " << theTranslator->trClassDocumentation() << "}"<< endl;
         }
-        for (cli.toFirst();(cd=cli.current()) && !found;++cli)
+        for (const auto &cd : *Doxygen::classLinkedMap)
         {
           if (cd->isLinkableInProject() &&
               cd->templateMaster()==0 &&
@@ -829,22 +813,11 @@ void RTFGenerator::endIndexSection(IndexSections is)
              )
           {
             t << "\\par " << rtf_Style_Reset << endl;
-            t << "{\\field\\fldedit{\\*\\fldinst INCLUDETEXT \"";
-            t << cd->getOutputFileBase();
-            t << ".rtf\" \\\\*MERGEFORMAT}{\\fldrslt includedstuff}}\n";
-            found=TRUE;
-          }
-        }
-        for (;(cd=cli.current());++cli)
-        {
-          if (cd->isLinkableInProject() &&
-              cd->templateMaster()==0 &&
-             !cd->isEmbeddedInOuterScope() &&
-             !cd->isAlias()
-             )
-          {
-            t << "\\par " << rtf_Style_Reset << endl;
-            beginRTFSection();
+            if (!first)
+            {
+              beginRTFSection();
+            }
+            first=false;
             t << "{\\field\\fldedit{\\*\\fldinst INCLUDETEXT \"";
             t << cd->getOutputFileBase();
             t << ".rtf\" \\\\*MERGEFORMAT}{\\fldrslt includedstuff}}\n";
@@ -863,31 +836,19 @@ void RTFGenerator::endIndexSection(IndexSections is)
           {
             if (fd->isLinkableInProject())
             {
-              if (isFirst)
+              t << "\\par " << rtf_Style_Reset << endl;
+              if (!isFirst)
               {
-                t << "\\par " << rtf_Style_Reset << endl;
-                t << "{\\field\\fldedit{\\*\\fldinst INCLUDETEXT \"";
-                t << fd->getOutputFileBase();
-                t << ".rtf\" \\\\*MERGEFORMAT}{\\fldrslt includedstuff}}\n";
-                if (sourceBrowser && m_prettyCode && fd->generateSourceFile())
-                {
-                  t << "\\par " << rtf_Style_Reset << endl;
-                  t << "{\\field\\fldedit{\\*\\fldinst INCLUDETEXT \"" << fd->getSourceFileBase() << ".rtf\" \\\\*MERGEFORMAT}{\\fldrslt includedstuff}}\n";
-                }
-                isFirst=FALSE;
-              }
-              else
-              {
-                t << "\\par " << rtf_Style_Reset << endl;
                 beginRTFSection();
-                t << "{\\field\\fldedit{\\*\\fldinst INCLUDETEXT \"";
-                t << fd->getOutputFileBase();
-                t << ".rtf\" \\\\*MERGEFORMAT}{\\fldrslt includedstuff}}\n";
-                if (sourceBrowser && m_prettyCode && fd->generateSourceFile())
-                {
-                  t << "\\par " << rtf_Style_Reset << endl;
-                  t << "{\\field\\fldedit{\\*\\fldinst INCLUDETEXT \"" << fd->getSourceFileBase() << ".rtf\" \\\\*MERGEFORMAT}{\\fldrslt includedstuff}}\n";
-                }
+              }
+              isFirst=FALSE;
+              t << "{\\field\\fldedit{\\*\\fldinst INCLUDETEXT \"";
+              t << fd->getOutputFileBase();
+              t << ".rtf\" \\\\*MERGEFORMAT}{\\fldrslt includedstuff}}\n";
+              if (sourceBrowser && m_prettyCode && fd->generateSourceFile())
+              {
+                t << "\\par " << rtf_Style_Reset << endl;
+                t << "{\\field\\fldedit{\\*\\fldinst INCLUDETEXT \"" << fd->getSourceFileBase() << ".rtf\" \\\\*MERGEFORMAT}{\\fldrslt includedstuff}}\n";
               }
             }
           }

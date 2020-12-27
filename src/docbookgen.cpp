@@ -532,24 +532,12 @@ DB_GEN_C2("IndexSections " << is)
     case isNamespaceDocumentation:
       {
         t << "</title>" << endl;
-        NamespaceSDict::Iterator nli(*Doxygen::namespaceSDict);
-        NamespaceDef *nd;
-        bool found=FALSE;
-        for (nli.toFirst();(nd=nli.current()) && !found;++nli)
-        {
-          if (nd->isLinkableInProject() && !nd->isAlias())
-          {
-            t << "<xi:include href=\"" << nd->getOutputFileBase() << ".xml\" xmlns:xi=\"http://www.w3.org/2001/XInclude\"/>" << endl;
-            found=TRUE;
-          }
-        }
-        while ((nd=nli.current()))
+        for (const auto &nd : *Doxygen::namespaceLinkedMap)
         {
           if (nd->isLinkableInProject() && !nd->isAlias())
           {
             t << "<xi:include href=\"" << nd->getOutputFileBase() << ".xml\" xmlns:xi=\"http://www.w3.org/2001/XInclude\"/>" << endl;
           }
-          ++nli;
         }
       }
       t << "</chapter>\n";
@@ -557,22 +545,7 @@ DB_GEN_C2("IndexSections " << is)
     case isClassDocumentation:
       {
         t << "</title>" << endl;
-        ClassSDict::Iterator cli(*Doxygen::classSDict);
-        const ClassDef *cd=0;
-        bool found=FALSE;
-        for (cli.toFirst();(cd=cli.current()) && !found;++cli)
-        {
-          if (cd->isLinkableInProject() &&
-              cd->templateMaster()==0 &&
-             !cd->isEmbeddedInOuterScope() &&
-             !cd->isAlias()
-             )
-          {
-            t << "    <xi:include href=\"" << cd->getOutputFileBase() << ".xml\" xmlns:xi=\"http://www.w3.org/2001/XInclude\"/>" << endl;
-            found=TRUE;
-          }
-        }
-        for (;(cd=cli.current());++cli)
+        for (const auto &cd : *Doxygen::classLinkedMap)
         {
           if (cd->isLinkableInProject() &&
               cd->templateMaster()==0 &&

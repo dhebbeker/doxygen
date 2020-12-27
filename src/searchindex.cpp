@@ -738,50 +738,46 @@ void createJavaScriptSearchIndex()
   // add symbols to letter -> symbol list map
 
   // index classes
-  ClassSDict::Iterator cli(*Doxygen::classSDict);
-  ClassDef *cd;
-  for (;(cd=cli.current());++cli)
+  for (const auto &cd : *Doxygen::classLinkedMap)
   {
     uint letter = getUtf8CodeToLower(cd->localName(),0);
     if (cd->isLinkable() && isId(letter))
     {
-      g_searchIndexInfo[SEARCH_INDEX_ALL].symbolList.append(letter,cd);
+      g_searchIndexInfo[SEARCH_INDEX_ALL].symbolList.append(letter,cd.get());
       if (sliceOpt)
       {
         if (cd->compoundType()==ClassDef::Interface)
         {
-          g_searchIndexInfo[SEARCH_INDEX_INTERFACES].symbolList.append(letter,cd);
+          g_searchIndexInfo[SEARCH_INDEX_INTERFACES].symbolList.append(letter,cd.get());
         }
         else if (cd->compoundType()==ClassDef::Struct)
         {
-          g_searchIndexInfo[SEARCH_INDEX_STRUCTS].symbolList.append(letter,cd);
+          g_searchIndexInfo[SEARCH_INDEX_STRUCTS].symbolList.append(letter,cd.get());
         }
         else if (cd->compoundType()==ClassDef::Exception)
         {
-          g_searchIndexInfo[SEARCH_INDEX_EXCEPTIONS].symbolList.append(letter,cd);
+          g_searchIndexInfo[SEARCH_INDEX_EXCEPTIONS].symbolList.append(letter,cd.get());
         }
         else // cd->compoundType()==ClassDef::Class
         {
-          g_searchIndexInfo[SEARCH_INDEX_CLASSES].symbolList.append(letter,cd);
+          g_searchIndexInfo[SEARCH_INDEX_CLASSES].symbolList.append(letter,cd.get());
         }
       }
       else // non slice optimisation: group all types under classes
       {
-        g_searchIndexInfo[SEARCH_INDEX_CLASSES].symbolList.append(letter,cd);
+        g_searchIndexInfo[SEARCH_INDEX_CLASSES].symbolList.append(letter,cd.get());
       }
     }
   }
 
   // index namespaces
-  NamespaceSDict::Iterator nli(*Doxygen::namespaceSDict);
-  NamespaceDef *nd;
-  for (;(nd=nli.current());++nli)
+  for (const auto &nd : *Doxygen::namespaceLinkedMap)
   {
     uint letter = getUtf8CodeToLower(nd->name(),0);
     if (nd->isLinkable() && isId(letter))
     {
-      g_searchIndexInfo[SEARCH_INDEX_ALL].symbolList.append(letter,nd);
-      g_searchIndexInfo[SEARCH_INDEX_NAMESPACES].symbolList.append(letter,nd);
+      g_searchIndexInfo[SEARCH_INDEX_ALL].symbolList.append(letter,nd.get());
+      g_searchIndexInfo[SEARCH_INDEX_NAMESPACES].symbolList.append(letter,nd.get());
     }
   }
 

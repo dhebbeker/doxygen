@@ -98,11 +98,11 @@ class NamespaceDefImpl : public DefinitionMixin<NamespaceDefMutable>
     virtual const QList<MemberList> &getMemberLists() const { return m_memberLists; }
     virtual MemberDef    *getMemberByName(const QCString &) const;
     virtual MemberGroupSDict *getMemberGroupSDict() const { return memberGroupSDict; }
-    virtual ClassSDict *getClassSDict() const { return classSDict; }
-    virtual ClassSDict *getInterfaceSDict() const { return interfaceSDict; }
-    virtual ClassSDict *getStructSDict() const { return structSDict; }
-    virtual ClassSDict *getExceptionSDict() const { return exceptionSDict; }
-    virtual const NamespaceSDict *getNamespaceSDict() const { return namespaceSDict; }
+    virtual ClassLinkedRefMap getClasses() const { return classes; }
+    virtual ClassLinkedRefMap getInterfaces() const { return interfaces; }
+    virtual ClassLinkedRefMap getStructs() const { return structs; }
+    virtual ClassLinkedRefMap getExceptions() const { return exceptions; }
+    virtual NamespaceLinkedRefMap getNamespaces() const { return namespaces; }
 
     virtual QCString title() const;
     virtual QCString compoundTypeString() const;
@@ -118,7 +118,7 @@ class NamespaceDefImpl : public DefinitionMixin<NamespaceDefMutable>
     void writeBriefDescription(OutputList &ol);
     void startMemberDeclarations(OutputList &ol);
     void endMemberDeclarations(OutputList &ol);
-    void writeClassDeclarations(OutputList &ol,const QCString &title,ClassSDict *d);
+    void writeClassDeclarations(OutputList &ol,const QCString &title,const ClassLinkedRefMap &d);
     void writeInlineClasses(OutputList &ol);
     void writeMemberGroups(OutputList &ol);
     void writeAuthorSection(OutputList &ol);
@@ -126,7 +126,7 @@ class NamespaceDefImpl : public DefinitionMixin<NamespaceDefMutable>
     void endMemberDocumentation(OutputList &ol);
     void writeSummaryLinks(OutputList &ol) const;
     void addNamespaceAttributes(OutputList &ol);
-    void writeClassesToTagFile(FTextStream &,ClassSDict *d);
+    void writeClassesToTagFile(FTextStream &,const ClassLinkedRefMap &d);
 
     void writeNamespaceDeclarations(OutputList &ol,const QCString &title,
             bool isConstantGroup=false);
@@ -141,11 +141,11 @@ class NamespaceDefImpl : public DefinitionMixin<NamespaceDefMutable>
     MemberSDict          *m_allMembersDict = 0;
     QList<MemberList>     m_memberLists;
     MemberGroupSDict     *memberGroupSDict = 0;
-    ClassSDict           *classSDict = 0;
-    ClassSDict           *interfaceSDict = 0;
-    ClassSDict           *structSDict = 0;
-    ClassSDict           *exceptionSDict = 0;
-    NamespaceSDict       *namespaceSDict = 0;
+    ClassLinkedRefMap     classes;
+    ClassLinkedRefMap     interfaces;
+    ClassLinkedRefMap     structs;
+    ClassLinkedRefMap     exceptions;
+    NamespaceLinkedRefMap namespaces;
     bool                  m_subGrouping = false;
     enum { NAMESPACE, MODULE, CONSTANT_GROUP, LIBRARY } m_type;
     bool m_isPublished = false;
@@ -214,16 +214,16 @@ class NamespaceDefAliasImpl : public DefinitionAliasMixin<NamespaceDef>
     { return getNSAlias()->getMemberByName(name); }
     virtual MemberGroupSDict *getMemberGroupSDict() const
     { return getNSAlias()->getMemberGroupSDict(); }
-    virtual ClassSDict *getClassSDict() const
-    { return getNSAlias()->getClassSDict(); }
-    virtual ClassSDict *getInterfaceSDict() const
-    { return getNSAlias()->getInterfaceSDict(); }
-    virtual ClassSDict *getStructSDict() const
-    { return getNSAlias()->getStructSDict(); }
-    virtual ClassSDict *getExceptionSDict() const
-    { return getNSAlias()->getExceptionSDict(); }
-    virtual const NamespaceSDict *getNamespaceSDict() const
-    { return getNSAlias()->getNamespaceSDict(); }
+    virtual ClassLinkedRefMap getClasses() const
+    { return getNSAlias()->getClasses(); }
+    virtual ClassLinkedRefMap getInterfaces() const
+    { return getNSAlias()->getInterfaces(); }
+    virtual ClassLinkedRefMap getStructs() const
+    { return getNSAlias()->getStructs(); }
+    virtual ClassLinkedRefMap getExceptions() const
+    { return getNSAlias()->getExceptions(); }
+    virtual NamespaceLinkedRefMap getNamespaces() const
+    { return getNSAlias()->getNamespaces(); }
     virtual QCString title() const
     { return getNSAlias()->title(); }
     virtual QCString compoundTypeString() const
@@ -263,11 +263,6 @@ NamespaceDefImpl::NamespaceDefImpl(const char *df,int dl,int dc,
   {
     setFileName(name);
   }
-  classSDict = new ClassSDict(17);
-  interfaceSDict = new ClassSDict(17);
-  structSDict = new ClassSDict(17);
-  exceptionSDict = new ClassSDict(17);
-  namespaceSDict = new NamespaceSDict(17);
   m_innerCompounds = new SDict<Definition>(17);
   m_allMembersDict = 0;
   setReference(lref);
@@ -295,11 +290,6 @@ NamespaceDefImpl::NamespaceDefImpl(const char *df,int dl,int dc,
 
 NamespaceDefImpl::~NamespaceDefImpl()
 {
-  delete classSDict;
-  delete interfaceSDict;
-  delete structSDict;
-  delete exceptionSDict;
-  delete namespaceSDict;
   delete m_innerCompounds;
   delete memberGroupSDict;
   delete m_allMembersDict;
@@ -375,46 +365,30 @@ void NamespaceDefImpl::addInnerCompound(const Definition *d)
 
 void NamespaceDefImpl::insertClass(const ClassDef *cd)
 {
-  ClassSDict *d = classSDict;
+  ClassLinkedRefMap &d = classes;
 
   if (Config_getBool(OPTIMIZE_OUTPUT_SLICE))
   {
     if (cd->compoundType()==ClassDef::Interface)
     {
-      d = interfaceSDict;
+      d = interfaces;
     }
     else if (cd->compoundType()==ClassDef::Struct)
     {
-      d = structSDict;
+      d = structs;
     }
     else if (cd->compoundType()==ClassDef::Exception)
     {
-      d = exceptionSDict;
+      d = exceptions;
     }
   }
 
-  if (d->find(cd->name())==0)
-  {
-    if (Config_getBool(SORT_BRIEF_DOCS))
-    {
-      d->inSort(cd->name(),cd);
-    }
-    else
-    {
-      d->append(cd->name(),cd);
-    }
-  }
+  d.add(cd->name(),cd);
 }
 
 void NamespaceDefImpl::insertNamespace(const NamespaceDef *nd)
 {
-  if (namespaceSDict->find(nd->name())==0)
-  {
-    if (Config_getBool(SORT_MEMBER_DOCS))
-      namespaceSDict->inSort(nd->name(),nd);
-    else
-      namespaceSDict->append(nd->name(),nd);
-  }
+  namespaces.add(nd->name(),nd);
 }
 
 
@@ -605,42 +579,33 @@ void NamespaceDefImpl::writeTagFile(FTextStream &tagFile)
     {
       case LayoutDocEntry::NamespaceNestedNamespaces:
         {
-          if (namespaceSDict)
+          for (const auto &nd : namespaces)
           {
-            SDict<NamespaceDef>::Iterator ni(*namespaceSDict);
-            NamespaceDef *nd;
-            for (ni.toFirst();(nd=ni.current());++ni)
+            if (nd->isLinkableInProject())
             {
-              if (nd->isLinkableInProject())
-              {
-                tagFile << "    <namespace>" << convertToXML(nd->name()) << "</namespace>" << endl;
-              }
+              tagFile << "    <namespace>" << convertToXML(nd->name()) << "</namespace>" << endl;
             }
           }
         }
         break;
       case LayoutDocEntry::NamespaceClasses:
         {
-          if (classSDict)
-            writeClassesToTagFile(tagFile, classSDict);
+          writeClassesToTagFile(tagFile, classes);
         }
         break;
       case LayoutDocEntry::NamespaceInterfaces:
         {
-          if (interfaceSDict)
-            writeClassesToTagFile(tagFile, interfaceSDict);
+          writeClassesToTagFile(tagFile, interfaces);
         }
         break;
       case LayoutDocEntry::NamespaceStructs:
         {
-          if (structSDict)
-            writeClassesToTagFile(tagFile, structSDict);
+          writeClassesToTagFile(tagFile, structs);
         }
         break;
       case LayoutDocEntry::NamespaceExceptions:
         {
-          if (exceptionSDict)
-            writeClassesToTagFile(tagFile, exceptionSDict);
+          writeClassesToTagFile(tagFile, exceptions);
         }
         break;
       case LayoutDocEntry::MemberDecl:
@@ -805,20 +770,20 @@ void NamespaceDefImpl::endMemberDocumentation(OutputList &ol)
   }
 }
 
-void NamespaceDefImpl::writeClassDeclarations(OutputList &ol,const QCString &title,ClassSDict *d)
+void NamespaceDefImpl::writeClassDeclarations(OutputList &ol,const QCString &title,const ClassLinkedRefMap &d)
 {
-  if (d) d->writeDeclaration(ol,0,title,TRUE);
+  d.writeDeclaration(ol,0,title,TRUE);
 }
 
 void NamespaceDefImpl::writeInlineClasses(OutputList &ol)
 {
-  if (classSDict) classSDict->writeDocumentation(ol,this);
+  classes.writeDocumentation(ol,this);
 }
 
 void NamespaceDefImpl::writeNamespaceDeclarations(OutputList &ol,const QCString &title,
             bool const isConstantGroup)
 {
-  if (namespaceSDict) namespaceSDict->writeDeclaration(ol,title,isConstantGroup,TRUE);
+  namespaces.writeDeclaration(ol,title,isConstantGroup,TRUE);
 }
 
 void NamespaceDefImpl::writeMemberGroups(OutputList &ol)
@@ -863,35 +828,35 @@ void NamespaceDefImpl::writeSummaryLinks(OutputList &ol) const
   SrcLangExt lang = getLanguage();
   for (eli.toFirst();(lde=eli.current());++eli)
   {
-    if (lde->kind()==LayoutDocEntry::NamespaceClasses && classSDict && classSDict->declVisible())
+    if (lde->kind()==LayoutDocEntry::NamespaceClasses && classes.declVisible())
     {
       LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
       QCString label = "nested-classes";
       ol.writeSummaryLink(0,label,ls->title(lang),first);
       first=FALSE;
     }
-    else if (lde->kind()==LayoutDocEntry::NamespaceInterfaces && interfaceSDict && interfaceSDict->declVisible())
+    else if (lde->kind()==LayoutDocEntry::NamespaceInterfaces && interfaces.declVisible())
     {
       LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
       QCString label = "interfaces";
       ol.writeSummaryLink(0,label,ls->title(lang),first);
       first=FALSE;
     }
-    else if (lde->kind()==LayoutDocEntry::NamespaceStructs && structSDict && structSDict->declVisible())
+    else if (lde->kind()==LayoutDocEntry::NamespaceStructs && structs.declVisible())
     {
       LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
       QCString label = "structs";
       ol.writeSummaryLink(0,label,ls->title(lang),first);
       first=FALSE;
     }
-    else if (lde->kind()==LayoutDocEntry::NamespaceExceptions && exceptionSDict && exceptionSDict->declVisible())
+    else if (lde->kind()==LayoutDocEntry::NamespaceExceptions && exceptions.declVisible())
     {
       LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
       QCString label = "exceptions";
       ol.writeSummaryLink(0,label,ls->title(lang),first);
       first=FALSE;
     }
-    else if (lde->kind()==LayoutDocEntry::NamespaceNestedNamespaces && namespaceSDict && namespaceSDict->declVisible())
+    else if (lde->kind()==LayoutDocEntry::NamespaceNestedNamespaces && namespaces.declVisible())
     {
       LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
       QCString label = "namespaces";
@@ -930,11 +895,9 @@ void NamespaceDefImpl::addNamespaceAttributes(OutputList &ol)
   }
 }
 
-void NamespaceDefImpl::writeClassesToTagFile(FTextStream &tagFile,ClassSDict *d)
+void NamespaceDefImpl::writeClassesToTagFile(FTextStream &tagFile,const ClassLinkedRefMap &list)
 {
-  SDict<ClassDef>::Iterator ci(*d);
-  ClassDef *cd;
-  for (ci.toFirst();(cd=ci.current());++ci)
+  for (const auto &cd : list)
   {
     if (cd->isLinkableInProject())
     {
@@ -996,25 +959,25 @@ void NamespaceDefImpl::writeDocumentation(OutputList &ol)
       case LayoutDocEntry::NamespaceClasses:
         {
           LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
-          writeClassDeclarations(ol,ls->title(lang),classSDict);
+          writeClassDeclarations(ol,ls->title(lang),classes);
         }
         break;
       case LayoutDocEntry::NamespaceInterfaces:
         {
           LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
-          writeClassDeclarations(ol,ls->title(lang),interfaceSDict);
+          writeClassDeclarations(ol,ls->title(lang),interfaces);
         }
         break;
       case LayoutDocEntry::NamespaceStructs:
         {
           LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
-          writeClassDeclarations(ol,ls->title(lang),structSDict);
+          writeClassDeclarations(ol,ls->title(lang),structs);
         }
         break;
       case LayoutDocEntry::NamespaceExceptions:
         {
           LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
-          writeClassDeclarations(ol,ls->title(lang),exceptionSDict);
+          writeClassDeclarations(ol,ls->title(lang),exceptions);
         }
         break;
       case LayoutDocEntry::NamespaceNestedNamespaces:
@@ -1147,25 +1110,25 @@ void NamespaceDefImpl::writeQuickMemberLinks(OutputList &ol,const MemberDef *cur
     {
       if (md->getNamespaceDef()==this && md->isLinkable() && !md->isEnumValue())
       {
-        ol.writeString("          <tr><td class=\"navtab\">");
         if (md->isLinkableInProject())
         {
           if (md==currentMd) // selected item => highlight
           {
-            ol.writeString("<a class=\"qindexHL\" ");
+            ol.writeString("          <tr><td class=\"navtabHL\">");
           }
           else
           {
-            ol.writeString("<a class=\"qindex\" ");
+            ol.writeString("          <tr><td class=\"navtab\">");
           }
+          ol.writeString("<a class=\"navtab\" ");
           ol.writeString("href=\"");
           if (createSubDirs) ol.writeString("../../");
           ol.writeString(md->getOutputFileBase()+Doxygen::htmlFileExtension+"#"+md->anchor());
           ol.writeString("\">");
           ol.writeString(convertToHtml(md->localName()));
           ol.writeString("</a>");
+          ol.writeString("</td></tr>\n");
         }
-        ol.writeString("</td></tr>\n");
       }
     }
   }
@@ -1313,11 +1276,11 @@ void NamespaceDefImpl::combineUsingRelations(NamespaceDefSet &visitedNamespaces)
   }
 }
 
-bool NamespaceSDict::declVisible() const
+//-------------------------------------------------------------------------------
+
+bool NamespaceLinkedRefMap::declVisible() const
 {
-  SDict<NamespaceDef>::Iterator ni(*this);
-  NamespaceDef *nd;
-  for (ni.toFirst();(nd=ni.current());++ni)
+  for (const auto &nd : *this)
   {
     if (nd->isLinkable())
     {
@@ -1327,20 +1290,17 @@ bool NamespaceSDict::declVisible() const
   return FALSE;
 }
 
-void NamespaceSDict::writeDeclaration(OutputList &ol,const char *title,
+void NamespaceLinkedRefMap::writeDeclaration(OutputList &ol,const char *title,
         bool const isConstantGroup,bool localName)
 {
 
 
-  if (count()==0) return; // no namespaces in the list
+  if (empty()) return; // no namespaces in the list
 
   if (Config_getBool(OPTIMIZE_OUTPUT_VHDL)) return;
 
-
-  SDict<NamespaceDef>::Iterator ni(*this);
-  NamespaceDef *nd;
   bool found=FALSE;
-  for (ni.toFirst();(nd=ni.current()) && !found;++ni)
+  for (const auto &nd : *this)
   {
     if (nd->isLinkable() && nd->hasDocumentation())
     {
@@ -1373,7 +1333,7 @@ void NamespaceSDict::writeDeclaration(OutputList &ol,const char *title,
   ol.parseText(title);
   ol.endMemberHeader();
   ol.startMemberList();
-  for (ni.toFirst();(nd=ni.current());++ni)
+  for (const auto &nd : *this)
   {
     if (nd->isLinkable() && nd->hasDocumentation())
     {
@@ -1409,6 +1369,8 @@ void NamespaceSDict::writeDeclaration(OutputList &ol,const char *title,
   }
   ol.endMemberList();
 }
+
+//-------------------------------------------------------------------------------
 
 MemberList *NamespaceDefImpl::createMemberList(MemberListType lt)
 {
@@ -1456,26 +1418,31 @@ void NamespaceDefImpl::sortMemberLists()
   {
     if (ml->needsSorting()) { ml->sort(); ml->setNeedsSorting(FALSE); }
   }
-  if (classSDict)
+
+
+  if (Config_getBool(SORT_BRIEF_DOCS))
   {
-    classSDict->sort();
+    auto classComp = [](const ClassLinkedRefMap::Ptr &c1,const ClassLinkedRefMap::Ptr &c2)
+    {
+      return Config_getBool(SORT_BY_SCOPE_NAME)     ?
+        qstricmp(c1->name(), c2->name())<0          :
+        qstricmp(c1->className(), c2->className())<0;
+    };
+
+    std::sort(classes.begin(),   classes.end(),   classComp);
+    std::sort(interfaces.begin(),interfaces.end(),classComp);
+    std::sort(structs.begin(),   structs.end(),   classComp);
+    std::sort(exceptions.begin(),exceptions.end(),classComp);
+
   }
-  if (interfaceSDict)
+
+  // TODO: inconsistent: should be only done when SORT_BRIEF_DOCS is enabled...
+  auto namespaceComp = [](const NamespaceLinkedRefMap::Ptr &n1,const NamespaceLinkedRefMap::Ptr &n2)
   {
-    interfaceSDict->sort();
-  }
-  if (structSDict)
-  {
-    structSDict->sort();
-  }
-  if (exceptionSDict)
-  {
-    exceptionSDict->sort();
-  }
-  if (namespaceSDict)
-  {
-    namespaceSDict->sort();
-  }
+    return qstricmp(n1->name(),n2->name())<0;
+  };
+
+  std::sort(namespaces.begin(),namespaces.end(),namespaceComp);
 }
 
 MemberList *NamespaceDefImpl::getMemberList(MemberListType lt) const

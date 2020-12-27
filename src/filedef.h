@@ -33,13 +33,12 @@
 class MemberList;
 class FileDef;
 class FileList;
-class ClassSDict;
 class ClassDef;
 class ClassList;
 class MemberDef;
 class OutputList;
 class NamespaceDef;
-class NamespaceSDict;
+class NamespaceLinkedRefMap;
 class MemberGroupSDict;
 class PackageDef;
 class DirDef;
@@ -134,8 +133,8 @@ class FileDef : public DefinitionMutable, public Definition
 
     /* user defined member groups */
     virtual MemberGroupSDict *getMemberGroupSDict() const = 0;
-    virtual NamespaceSDict *getNamespaceSDict() const = 0;
-    virtual ClassSDict *getClassSDict() const = 0;
+    virtual NamespaceLinkedRefMap getNamespaces() const = 0;
+    virtual ClassLinkedRefMap getClasses() const = 0;
 
     virtual QCString title() const = 0;
     virtual bool hasDetailedDescription() const = 0;
@@ -164,8 +163,8 @@ class FileDef : public DefinitionMutable, public Definition
     virtual void setDiskName(const QCString &name) = 0;
 
     virtual void insertMember(MemberDef *md) = 0;
-    virtual void insertClass(ClassDef *cd) = 0;
-    virtual void insertNamespace(NamespaceDef *nd) = 0;
+    virtual void insertClass(const ClassDef *cd) = 0;
+    virtual void insertNamespace(const NamespaceDef *nd) = 0;
     virtual void computeAnchors() = 0;
 
     virtual void setPackageDef(PackageDef *pd) = 0;
