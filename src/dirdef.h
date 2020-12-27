@@ -115,7 +115,7 @@ class FilePairDict : public SDict<FilePair>
 class UsedDir
 {
   public:
-  using GeneratedKey = decltype(((DirDef*)nullptr)->getOutputFileBase());
+  using GeneratedKey = decltype(std::declval<DirDef>().getOutputFileBase());
   static GeneratedKey generateKey(const DirDef* const directory, const bool isDependencyInherited, const bool isParentOfTheDependee);
     UsedDir(const DirDef *dir,const bool isDependencyInherited, const bool isParentOfTheDependee);
     virtual ~UsedDir();
