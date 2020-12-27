@@ -143,6 +143,7 @@ struct DotDirProperty
 
 typedef std::map<const DirDef* const, DotDirProperty> PropertyMap;
 typedef decltype(std::declval<DirDef>().level()) DirectoryLevel;
+typedef std::vector<const DirRelation*> DirRelations;
 
 /**
  * returns a DOT color name according to the directory depth
@@ -361,8 +362,6 @@ static void drawTrees(FTextStream &outputStream, const ConstDirList &listOfTreeR
   }
 }
 
-typedef std::vector<const DirRelation*> DirRelations;
-
 static bool isAtLowerVisibilityBorder(const DirDef &directory, const DirectoryLevel startLevel)
 {
   return (directory.level() - startLevel) == Config_getInt(MAX_DOT_GRAPH_SUCCESSOR);
@@ -472,7 +471,7 @@ void DotDirDeps::computeTheGraph()
   //m_dir->writeDepGraph(md5stream);
   writeGraphHeader(md5stream, m_dir->displayName());
   md5stream << "  compound=true\n";
-  writeDotDirDependencyGraph(md5stream,m_dir,m_linkRelations);
+  writeDotDirDependencyGraph(md5stream, m_dir, m_linkRelations);
   writeGraphFooter(md5stream);
 }
 
