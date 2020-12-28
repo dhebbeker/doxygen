@@ -231,13 +231,13 @@ static void getTreeRootsLimited(const DirDef &basedOnDirectory, const ConstDirLi
     {  // the directory has no further parents
       ancestors.push_back(&basedOnDirectory);
     }
-    else if (std::abs(startLevel - basedOnDirectory.parent()->level()) > Config_getInt(MAX_DOT_GRAPH_ANCESTOR))
-    {  // the parent directory is not too far up
+    else if (startLevel - basedOnDirectory.parent()->level() > Config_getInt(MAX_DOT_GRAPH_ANCESTOR))
+    {  // the parent directory is too far up
       directoryProperties[&basedOnDirectory].isOrphaned = true;
       ancestors.push_back(&basedOnDirectory);
     }
     else
-    {
+    {  // the parent directory is further investigated
       getTreeRootsLimited(*(basedOnDirectory.parent()), originalDirectoryTree, ancestors, directoryProperties, startLevel);
     }
   }
