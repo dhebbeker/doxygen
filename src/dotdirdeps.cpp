@@ -331,7 +331,7 @@ static void drawTrees(FTextStream &outputStream, const ConstDirList &listOfTreeR
       }
       else
       {
-        if (((directory->level() + 1) - startLevel) > Config_getInt(MAX_DOT_GRAPH_SUCCESSOR))
+        if (isAtLowerVisibilityBorder(*directory, startLevel))
         {
           directoryProperty.isTruncated = true;
           drawDirectory(outputStream, directory, directoryProperty);
