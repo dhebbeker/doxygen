@@ -300,6 +300,11 @@ static void drawDirectory(FTextStream &outputStream, const DirDef *const directo
       "];\n";
 }
 
+static bool isAtLowerVisibilityBorder(const DirDef &directory, const DirectoryLevel startLevel)
+{
+  return (directory.level() - startLevel) == Config_getInt(MAX_DOT_GRAPH_SUCCESSOR);
+}
+
 /**
  * ### draw_limited(x)
  - if x is parent:
@@ -360,11 +365,6 @@ static void drawTrees(FTextStream &outputStream, const ConstDirList &listOfTreeR
     { // directory properties do not exist, do not draw that directory
     }
   }
-}
-
-static bool isAtLowerVisibilityBorder(const DirDef &directory, const DirectoryLevel startLevel)
-{
-  return (directory.level() - startLevel) == Config_getInt(MAX_DOT_GRAPH_SUCCESSOR);
 }
 
 /**
