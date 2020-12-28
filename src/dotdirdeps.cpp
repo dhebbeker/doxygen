@@ -224,15 +224,15 @@ static void getTreeRootsLimited(const DirDef &basedOnDirectory, const ConstDirLi
   if (std::find(ancestors.begin(), ancestors.end(), &basedOnDirectory) == ancestors.end())
   {
     if (std::find(originalDirectoryTree.begin(), originalDirectoryTree.end(), &basedOnDirectory) == originalDirectoryTree.end())
-    {
+    {  // the directory is not part of the tree starting at the original directory
       directoryProperties[&basedOnDirectory].isIncomplete = true;
     }
     if (basedOnDirectory.parent() == nullptr)
-    {
+    {  // the directory has no further parents
       ancestors.push_back(&basedOnDirectory);
     }
     else if (std::abs(startLevel - basedOnDirectory.parent()->level()) > Config_getInt(MAX_DOT_GRAPH_ANCESTOR))
-    {
+    {  // the parent directory is not too far up
       directoryProperties[&basedOnDirectory].isOrphaned = true;
       ancestors.push_back(&basedOnDirectory);
     }
