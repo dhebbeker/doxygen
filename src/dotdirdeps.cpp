@@ -37,6 +37,19 @@ In order to limit the complexity of the drawn graphs, the following limits are i
 - MAX_DOT_GRAPH_SUCCESSOR: Maximum number of successor levels drawn.
 - MAX_DOT_GRAPH_ANCESTOR: Maximum number of ancestor levels drawn.
 
+The successor depth limits applied to the successors of the original directory relative to the original
+directory level.
+
+If a dependee is not part of the original directory tree (ODT), then it is drawn beginning
+with the first directory, which is not part of the path which goes from the original directory to the
+[input directories to doxygen](https://www.doxygen.nl/manual/config.html#cfg_input) (not respecting limits).
+
+This dependee (which is not part of the ODT) is not recursed into. And no dependencies *from* that dependee
+will be analyzed.
+
+As an extension one could allow an order *n* of neighbor trees to be drawn. That is trees, which do not share
+a common parent with the original directory. The successor depth limit is then applied to the neighbor trees
+is relative to its root level. Also dependencies from that neighbor tree will be analyzed and drawn.
 
 
  * @endinternal
@@ -409,6 +422,12 @@ static void drawRelations(FTextStream &outputStream, const DirRelations &listOfR
  * 8. All dependency relations are drawn.
  * 9. At the end the ODT is completely drawn. The potential neighbor trees are drawn partially. No dependency
  *    relations are drawn within the neighbor trees.
+ *
+ * @note The reason, why the directory tree is not directly drawn when the ODT is passed the first time is,
+ *       that it is not known, which dependees need to be drawn in the ancestor directories. This reason would
+ *       be dropped in case no ancestor directories are drawn or dependees may be drawn outside the ODT even
+ *       though they share a common ancestor which is drawn.
+ *
  * @endinternal
  *
  * @param outputStream
