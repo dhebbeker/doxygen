@@ -28,98 +28,15 @@ terms
 - **successors** are all children / sub-directories (*recursively*) of a directory
 - **[dependee](https://en.wiktionary.org/wiki/dependee#Noun)** is a directory which is depended upon
 
-special formatting
-------------------
-### §3
-Elements marked with the following classes shall be formatted distinctively. The formatting of the classes
-should be orthogonal / not exclusive.
-
- - "incomplete": Not necessarily all of the successors are drawn (for ancestor directories).
- - "truncated": The successors are not drawn as they would exceed the directory level limit.
- - "original": ON
- - "orphaned": Parents are not drawn.
-
-A node can not be "incomplete" and "original" at the same time.
-
-Ideas for visualization:
-
- - incomplete: border dotted
- - truncated: border red
- - original: border bold
- - orphaned: border grey
-
 
 limits
 ------
 
-### §4
 In order to limit the complexity of the drawn graphs, the following limits are introduced:
 
-- `max_successor_depth`: Maximum number of successor levels drawn.
-- `max_ancestor_depth`: Maximum number of ancestor levels drawn.
+- MAX_DOT_GRAPH_SUCCESSOR: Maximum number of successor levels drawn.
+- MAX_DOT_GRAPH_ANCESTOR: Maximum number of ancestor levels drawn.
 
-The limits are specified relative to the global depth of the ON. They are applied on the global depth of each
-directory involved while determining successors or ancestors *to be drawn*.
-
-These shall be parameterizable through the configuration.
-
-Algorithm
----------
-
-May A, B, C, D, E, F be sets of nodes defined as follows:
-
- - A = ON (mark as "original")
- - B = successors(A)
- - C = dependees(A ∪ B)
- - D = successors(C)
- - E = A ∪ B ∪ C ∪ D
- - F = ancestors(A ∪ C)
-
-edges = dependencies(E)
-
-draw nodes = draw_limited(ancestor list)
-
-### draw_limited(x)
- - if x is parent:
-     - if children within limit `max_successor_depth`
-       1. open cluster
-       2. for each child: draw_limited(child)
-       3. close cluster
-     - else
-      - draw_directory(properties + "truncated")
- - else
-   1. draw_directory(properties)
-
-
-### Ancestor(x)
- 1. if x in ancestor list, return; else
- 2. mark x as "incomplete" (properties list)
- 3. if parent of x would exceed limit mark as "orphaned"; put x to ancestor list and return; else
- 4. if x has no; put x to ancestor list and return; else
- 5. Ancestor(p)
-
-### dependees(x)
-For each dependency of x, all dependees and *do not* respect limits.
-Add each node only once.
-
-### dependencies(set)
- can only be determined, when the complete and not truncated set of nodes is known.
- determines all dependencies within a set, respecting the limits
- 1. Take the ancestor list and walk through each tree. For each tree:
- 2. Walk trough the tree (using any algorithm). For each node x:
- 3. For each dependency d_x of x consisting of the dependent d_x_from and the dependee d_x_to
-   1. p = visible_ancestor(d_x_from)
-   2. q = visible_ancestor(d_x_to)
-   3. add relation p -> q to list of dependencies
-
-### Successors
-Determine recursively children and *do not* respect limits.
-
-### Maintain
-
- - a `map<>` container with the drawing properties of all nodes.
- - ancestor list: list of all tree roots
- - list of dependencies: List of dependencies to be drawn (limits are respected)
 
 
  * @endinternal
@@ -135,11 +52,32 @@ Determine recursively children and *do not* respect limits.
 #include "config.h"
 #include "container_utils.hpp"
 
+/**
+ * The properties are used to format the directories in the graph distinctively.
+ */
 struct DotDirProperty
 {
+  /**
+   * Signifies that some of the successors may not be drawn. This is the case, for directories for neighbor trees
+   * for which at least one successor is drawn.
+   */
   bool isIncomplete = false;
+
+  /**
+   * Signifies that the directory has ancestors which are not drawn because they would exceed the limit set
+   * by MAX_DOT_GRAPH_ANCESTOR.
+   */
   bool isOrphaned = false;
+
+  /**
+   * Signifies that the directory has successors which are not drawn because they would exceed the limit set
+   * by MAX_DOT_GRAPH_SUCCESSOR.
+   */
   bool isTruncated = false;
+
+  /**
+   * Is only true for the directory for which the graph is drawn.
+   */
   bool isOriginal = false;
 };
 
@@ -171,6 +109,11 @@ static QCString getDirectoryBackgroundColorCode(const std::size_t depthIndex)
   return colorSchemeName + colorIndex;
 }
 
+/**
+ * Determine recursively children and *do not* respect limits.
+ * @param nextLevelSuccessors list of successors which are recursively added to the list
+ * @return list of all successors
+ */
 static ConstDirList getSuccessors(const ConstDirList &nextLevelSuccessors)
 {
   ConstDirList successors;
@@ -214,7 +157,7 @@ static auto getDependees(const ConstDirList &dependents, const DirectoryLevel mi
 }
 
 /**
- * Buts only the elder in the
+ * Puts only the elder into the list.
  ### Ancestor(x)
  1. if x in ancestor list, return; else
  2. mark x as "incomplete" (properties list)
