@@ -38,6 +38,24 @@ In order to limit the complexity of the drawn graphs, the following limits are i
 - MAX_DOT_GRAPH_ANCESTOR: Maximum number of ancestor levels drawn.
 
 
+Recursive approach
+==================
+
+ 1. find root of the original directory tree (ODT). This would be the original directory, if the ancestor
+    limit is set to 0.
+ 2. draw the ODT
+ 3. draw all dependency relations. Put those dependees of the dependencies in a list (orphans), which have
+    not been drawn until now.
+ 4. repeat the procedure for each orphan, but check if the orphan has been drawn yet.
+
+ - while repeating the procedure, shall the new dependency relations also be checked? This could lead to
+   neighboring trees of higher order
+ - and while drawing neighbor trees: shall only those directories be drawn, which are in a path from the tree
+   root the the dependee? The information, whether a directory in in such a path is easy to note while
+   searching for the tree root
+
+This approach has the benefit, that the natural structure of the data is used. In contrast to the current implementation this does not pass the directories of a tree repeatedly. With the exception when searching for the tree root.
+
 
  * @endinternal
  */
