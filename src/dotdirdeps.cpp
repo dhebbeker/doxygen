@@ -425,14 +425,45 @@ static void drawRelations(FTextStream &outputStream, const DirRelations &listOfR
   }
 }
 
+
+/**
+ * @internal
+ * How this procedure works:
+ *
+ * 1. all directories, which are part of the original directory tree (ODT) are put in a list
+ * 2. all dependees of that directories are put in a list
+ * 3. determine the common tree roots, limited by the ancestor limit, of the original directory and the
+ *    dependees
+ * 4. then those dependency relations are determined, which shall be shown in respect to the successor limits.
+ * 5. Beginning at the roots of all trees, the trees are drawn. the recursive data structure of the directory
+ *    representation is used for this. this way all directories are draw, which are part of the dependency
+ *    relations determined above
+ * 6. while drawing the tree, all properties of the directories are taken into account. These properties have
+ *    been determined along the previous steps and are stored in a property map.
+ * 7. all directories of the ODT have been given property entries in the map. While traversing from the
+ *    dependees to their tree roots, they also have been given properties. Therefore it can be derived that
+ *    all directories without an entry in the property map shall not be drawn. Those are directories which are
+ *    not part of the ODT and not a branch of a neighbor tree which points to a dependee of the ODT.
+ * 8. All dependency relations are drawn.
+ * 9. At the end the ODT is completely drawn. The potential neighbor trees are drawn partially. No dependency
+ *    relations are drawn within the neighbor trees.
+ * @endinternal
+ *
+ * @param outputStream
+ * @param originalDirectoryPointer
+ * @param linkRelations
+ */
 static void writeDotDirDependencyGraph(FTextStream &outputStream, const DirDef *const originalDirectoryPointer, const bool linkRelations)
 {
   PropertyMap directoryDrawingProperties;
   directoryDrawingProperties[originalDirectoryPointer].isOriginal = true;
   const auto startLevel = originalDirectoryPointer->level();
+  //! @todo limit getSucessors to successor limit?
   const auto successorsOfOriginalDirectory = getSuccessors(makeConstCopy(originalDirectoryPointer->subDirs()));
   // contains also the ancestors of the dependees
   const auto originalDirectoryTree = concat(successorsOfOriginalDirectory, originalDirectoryPointer);
+  //! @todo get dependees while getting successors
+  //! dependees have already been inherited!?
   const auto dependeeDirectories = getDependees(originalDirectoryTree, startLevel - Config_getInt(MAX_DOT_GRAPH_ANCESTOR));
   for (auto directory : concat(successorsOfOriginalDirectory, dependeeDirectories))
   {
