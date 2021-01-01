@@ -1180,36 +1180,26 @@ static void writeInnerFiles(const FileList *fl,FTextStream &t)
   }
 }
 
-static void writeInnerPages(const PageSDict *pl,FTextStream &t)
+static void writeInnerPages(const PageLinkedRefMap &pl,FTextStream &t)
 {
-  if (pl)
+  for (const auto &pd : pl)
   {
-    PageSDict::Iterator pli(*pl);
-    PageDef *pd;
-    for (pli.toFirst();(pd=pli.current());++pli)
+    t << "    <innerpage refid=\"" << pd->getOutputFileBase();
+    if (pd->getGroupDef())
     {
-      t << "    <innerpage refid=\"" << pd->getOutputFileBase();
-      if (pd->getGroupDef())
-      {
-        t << "_" << pd->name();
-      }
-      t << "\">" << convertToXML(pd->title()) << "</innerpage>" << endl;
+      t << "_" << pd->name();
     }
+    t << "\">" << convertToXML(pd->title()) << "</innerpage>" << endl;
   }
 }
 
-static void writeInnerGroups(const GroupList *gl,FTextStream &t)
+static void writeInnerGroups(const GroupList &gl,FTextStream &t)
 {
-  if (gl)
+  for (const auto &sgd : gl)
   {
-    GroupListIterator gli(*gl);
-    const GroupDef *sgd;
-    for (gli.toFirst();(sgd=gli.current());++gli)
-    {
-      t << "    <innergroup refid=\"" << sgd->getOutputFileBase()
-        << "\">" << convertToXML(sgd->groupTitle())
-        << "</innergroup>" << endl;
-    }
+    t << "    <innergroup refid=\"" << sgd->getOutputFileBase()
+      << "\">" << convertToXML(sgd->groupTitle())
+      << "</innergroup>" << endl;
   }
 }
 
@@ -1365,15 +1355,10 @@ static void generateXMLForClass(const ClassDef *cd,FTextStream &ti)
   writeInnerClasses(cd->getClasses(),t);
 
   writeTemplateList(cd,t);
-  if (cd->getMemberGroupSDict())
+  for (const auto &mg : cd->getMemberGroups())
   {
-    MemberGroupSDict::Iterator mgli(*cd->getMemberGroupSDict());
-    MemberGroup *mg;
-    for (;(mg=mgli.current());++mgli)
-    {
-      generateXMLSection(cd,ti,t,mg->members(),"user-defined",mg->header(),
-          mg->documentation());
-    }
+    generateXMLSection(cd,ti,t,mg->members(),"user-defined",mg->header(),
+        mg->documentation());
   }
 
   QListIterator<MemberList> mli(cd->getMemberLists());
@@ -1469,15 +1454,10 @@ static void generateXMLForNamespace(const NamespaceDef *nd,FTextStream &ti)
   writeInnerClasses(nd->getClasses(),t);
   writeInnerNamespaces(nd->getNamespaces(),t);
 
-  if (nd->getMemberGroupSDict())
+  for (const auto &mg : nd->getMemberGroups())
   {
-    MemberGroupSDict::Iterator mgli(*nd->getMemberGroupSDict());
-    MemberGroup *mg;
-    for (;(mg=mgli.current());++mgli)
-    {
-      generateXMLSection(nd,ti,t,mg->members(),"user-defined",mg->header(),
+    generateXMLSection(nd,ti,t,mg->members(),"user-defined",mg->header(),
           mg->documentation());
-    }
   }
 
   QListIterator<MemberList> mli(nd->getMemberLists());
@@ -1600,15 +1580,10 @@ static void generateXMLForFile(FileDef *fd,FTextStream &ti)
   writeInnerClasses(fd->getClasses(),t);
   writeInnerNamespaces(fd->getNamespaces(),t);
 
-  if (fd->getMemberGroupSDict())
+  for (const auto &mg : fd->getMemberGroups())
   {
-    MemberGroupSDict::Iterator mgli(*fd->getMemberGroupSDict());
-    MemberGroup *mg;
-    for (;(mg=mgli.current());++mgli)
-    {
-      generateXMLSection(fd,ti,t,mg->members(),"user-defined",mg->header(),
-          mg->documentation());
-    }
+    generateXMLSection(fd,ti,t,mg->members(),"user-defined",mg->header(),
+        mg->documentation());
   }
 
   QListIterator<MemberList> mli(fd->getMemberLists());
@@ -1680,15 +1655,10 @@ static void generateXMLForGroup(const GroupDef *gd,FTextStream &ti)
   writeInnerPages(gd->getPages(),t);
   writeInnerGroups(gd->getSubGroups(),t);
 
-  if (gd->getMemberGroupSDict())
+  for (const auto &mg : gd->getMemberGroups())
   {
-    MemberGroupSDict::Iterator mgli(*gd->getMemberGroupSDict());
-    MemberGroup *mg;
-    for (;(mg=mgli.current());++mgli)
-    {
-      generateXMLSection(gd,ti,t,mg->members(),"user-defined",mg->header(),
-          mg->documentation());
-    }
+    generateXMLSection(gd,ti,t,mg->members(),"user-defined",mg->header(),
+        mg->documentation());
   }
 
   QListIterator<MemberList> mli(gd->getMemberLists());
@@ -1790,7 +1760,7 @@ static void generateXMLForPage(PageDef *pd,FTextStream &ti,bool isExample)
   t << "    <compoundname>" << convertToXML(pd->name())
     << "</compoundname>" << endl;
 
-  if (pd==Doxygen::mainPage) // main page is special
+  if (pd==Doxygen::mainPage.get()) // main page is special
   {
     QCString title;
     if (mainPageHasTitle())
@@ -1975,44 +1945,30 @@ void generateXML()
       generateXMLForFile(fd.get(),t);
     }
   }
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  const GroupDef *gd;
-  for (;(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
     msg("Generating XML output for group %s\n",gd->name().data());
-    generateXMLForGroup(gd,t);
+    generateXMLForGroup(gd.get(),t);
   }
+  for (const auto &pd : *Doxygen::pageLinkedMap)
   {
-    PageSDict::Iterator pdi(*Doxygen::pageSDict);
-    PageDef *pd=0;
-    for (pdi.toFirst();(pd=pdi.current());++pdi)
-    {
-      msg("Generating XML output for page %s\n",pd->name().data());
-      generateXMLForPage(pd,t,FALSE);
-    }
+    msg("Generating XML output for page %s\n",pd->name().data());
+    generateXMLForPage(pd.get(),t,FALSE);
   }
+  for (const auto &dd : *Doxygen::dirLinkedMap)
   {
-    DirDef *dir;
-    DirSDict::Iterator sdi(*Doxygen::directories);
-    for (sdi.toFirst();(dir=sdi.current());++sdi)
-    {
-      msg("Generate XML output for dir %s\n",dir->name().data());
-      generateXMLForDir(dir,t);
-    }
+    msg("Generate XML output for dir %s\n",dd->name().data());
+    generateXMLForDir(dd.get(),t);
   }
+  for (const auto &pd : *Doxygen::exampleLinkedMap)
   {
-    PageSDict::Iterator pdi(*Doxygen::exampleSDict);
-    PageDef *pd=0;
-    for (pdi.toFirst();(pd=pdi.current());++pdi)
-    {
-      msg("Generating XML output for example %s\n",pd->name().data());
-      generateXMLForPage(pd,t,TRUE);
-    }
+    msg("Generating XML output for example %s\n",pd->name().data());
+    generateXMLForPage(pd.get(),t,TRUE);
   }
   if (Doxygen::mainPage)
   {
     msg("Generating XML output for the main page\n");
-    generateXMLForPage(Doxygen::mainPage,t,FALSE);
+    generateXMLForPage(Doxygen::mainPage.get(),t,FALSE);
   }
 
   //t << "  </compoundlist>" << endl;

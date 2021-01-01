@@ -16,13 +16,16 @@
 #ifndef DIRDEF_H
 #define DIRDEF_H
 
+#include "linkedmap.h"
 #include "sortdict.h"
 #include "definition.h"
 
 #include <vector>
+#include <map>
 #include <qglobal.h>
 #include <qcstring.h>
 #include "container_utils.hpp"
+
 
 class FileList;
 class QStrList;
@@ -30,22 +33,74 @@ class FileDef;
 class OutputList;
 class UsedDir;
 class FTextStream;
-
+class FilePair;
+class FilePairDict;
 class DirDef;
-
-/** A list of directories. */
-typedef std::vector<DirDef*> DirList;
+class DirList;
 
 /// same container type as DirList but containing `const` objects
 typedef MakeConstValueTypeContainer<DirList> ConstDirList;
 
 bool compareDirDefs(const DirDef *item1, const DirDef *item2);
 
+// ------------------
+
+/** Class representing a pair of FileDef objects */
+class FilePair
+{
+  public:
+    FilePair(FileDef *src,FileDef *dst) : m_src(src), m_dst(dst) {}
+    const FileDef *source() const { return m_src; }
+    const FileDef *destination() const { return m_dst; }
+  private:
+    FileDef *m_src;
+    FileDef *m_dst;
+};
+
+// ------------------
+
+/** A sorted dictionary of FilePair objects. */
+class FilePairDict : public SDict<FilePair>
+{
+  public:
+    FilePairDict(uint size) : SDict<FilePair>(size) {}
+  private:
+    int compareValues(const FilePair *item1,const FilePair *item2) const;
+};
+
+// ------------------
+
+/** Usage information of a directory. */
+class UsedDir
+{
+  public:
+    using GeneratedKey = decltype(std::declval<DirDef>().getOutputFileBase());
+    static GeneratedKey generateKey(const DirDef* const directory, const bool isDependencyInherited, const bool isParentOfTheDependee);
+    UsedDir(const DirDef *dir,const bool isDependencyInherited, const bool isParentOfTheDependee);
+    virtual ~UsedDir();
+    void addFileDep(FileDef *srcFd,FileDef *dstFd);
+    FilePair *findFilePair(const char *name);
+    const FilePairDict &filePairs() const { return m_filePairs; }
+    const DirDef *dir() const { return m_dir; }
+    bool isDependencyInherited() const;
+    bool isParentOfTheDependee() const;
+    void sort();
+
+  private:
+    const DirDef *m_dir;
+    FilePairDict m_filePairs;
+    const bool m_isOriginalDependent, m_isOriginalDependee;
+};
+
+// ------------------
+
 /** A model of a directory symbol. */
 class DirDef : public DefinitionMutable, public Definition
 {
   public:
     virtual ~DirDef() {}
+
+    class UsedDirLinkedMap : public LinkedMap<UsedDir> {};
 
     // accessors
     virtual DefType definitionType() const = 0;
@@ -63,7 +118,7 @@ class DirDef : public DefinitionMutable, public Definition
     virtual int level() const = 0;
     virtual DirDef *parent() const = 0;
     virtual int dirCount() const = 0;
-    virtual const QDict<UsedDir> *usedDirs() const = 0;
+    virtual const UsedDirLinkedMap &usedDirs() const = 0;
     virtual bool isParentOf(const DirDef *dir) const = 0;
     virtual bool depGraphIsTrivial() const = 0;
     virtual QCString shortTitle() const = 0;
@@ -87,52 +142,6 @@ class DirDef : public DefinitionMutable, public Definition
 DirDef            *toDirDef(Definition *d);
 const DirDef      *toDirDef(const Definition *d);
 
-// ------------------
-
-
-/** Class representing a pair of FileDef objects */
-class FilePair
-{
-  public:
-    FilePair(FileDef *src,FileDef *dst) : m_src(src), m_dst(dst) {}
-    const FileDef *source() const { return m_src; }
-    const FileDef *destination() const { return m_dst; }
-  private:
-    FileDef *m_src;
-    FileDef *m_dst;
-};
-
-/** A sorted dictionary of FilePair objects. */
-class FilePairDict : public SDict<FilePair>
-{
-  public:
-    FilePairDict(uint size) : SDict<FilePair>(size) {}
-  private:
-    int compareValues(const FilePair *item1,const FilePair *item2) const;
-};
-
-/** Usage information of a directory. */
-class UsedDir
-{
-  public:
-  using GeneratedKey = decltype(std::declval<DirDef>().getOutputFileBase());
-  static GeneratedKey generateKey(const DirDef* const directory, const bool isDependencyInherited, const bool isParentOfTheDependee);
-    UsedDir(const DirDef *dir,const bool isDependencyInherited, const bool isParentOfTheDependee);
-    virtual ~UsedDir();
-    void addFileDep(FileDef *srcFd,FileDef *dstFd);
-    FilePair *findFilePair(const char *name);
-    const FilePairDict &filePairs() const { return m_filePairs; }
-    const DirDef *dir() const { return m_dir; }
-    bool isDependencyInherited() const;
-    bool isParentOfTheDependee() const;
-    void sort();
-
-  private:
-    const DirDef *m_dir;
-    FilePairDict m_filePairs;
-    const bool m_isOriginalDependent, m_isOriginalDependee;
-};
-
 /** A usage relation between two directories. */
 class DirRelation
 {
@@ -150,6 +159,7 @@ class DirRelation
     UsedDir *m_dst;
 };
 
+#if 0
 /** A sorted dictionary of DirDef objects. */
 class DirSDict : public SDict<DirDef>
 {
@@ -160,6 +170,20 @@ class DirSDict : public SDict<DirDef>
       return qstricmp(item1->shortName(),item2->shortName());
     }
 };
+#endif
+
+/** A linked map of directories */
+class DirLinkedMap : public LinkedMap<DirDef>
+{
+};
+
+/** A list of directories. */
+class DirList : public std::vector<const DirDef*>
+{
+};
+
+
+// ------------------
 
 
 void buildDirectories();

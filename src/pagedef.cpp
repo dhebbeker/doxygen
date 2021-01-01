@@ -45,8 +45,8 @@ class PageDefImpl : public DefinitionMixin<PageDef>
     virtual QCString anchor() const { return QCString(); }
     virtual void findSectionsInDocumentation();
     virtual QCString title() const { return m_title; }
-    virtual GroupDef *  getGroupDef() const;
-    virtual PageSDict * getSubPages() const { return m_subPageDict; }
+    virtual const GroupDef * getGroupDef() const;
+    virtual const PageLinkedRefMap &getSubPages() const { return m_subPages; }
     virtual void addInnerCompound(const Definition *d);
     virtual bool visibleInIndex() const;
     virtual bool documentedPage() const;
@@ -61,12 +61,12 @@ class PageDefImpl : public DefinitionMixin<PageDef>
     virtual void writeDocumentation(OutputList &ol);
     virtual void writeTagFile(FTextStream &);
     virtual void setNestingLevel(int l);
-    virtual void writePageDocumentation(OutputList &ol);
+    virtual void writePageDocumentation(OutputList &ol) const;
 
   private:
     QCString m_fileName;
     QCString m_title;
-    PageSDict *m_subPageDict;                 // list of pages in the group
+    PageLinkedRefMap m_subPages;                 // list of pages in the group
     Definition *m_pageScope;
     int m_nestingLevel;
     LocalToc m_localToc;
@@ -85,7 +85,6 @@ PageDefImpl::PageDefImpl(const char *f,int l,const char *n,
  : DefinitionMixin(f,l,1,n), m_title(t)
 {
   setDocumentation(d,f,l);
-  m_subPageDict = new PageSDict(7);
   m_pageScope = 0;
   m_nestingLevel = 0;
   m_fileName = ::convertNameToFile(n,FALSE,TRUE);
@@ -94,7 +93,6 @@ PageDefImpl::PageDefImpl(const char *f,int l,const char *n,
 
 PageDefImpl::~PageDefImpl()
 {
-  delete m_subPageDict;
 }
 
 void PageDefImpl::findSectionsInDocumentation()
@@ -103,10 +101,9 @@ void PageDefImpl::findSectionsInDocumentation()
   docFindSections(documentation(),this,docFile());
 }
 
-GroupDef *PageDefImpl::getGroupDef() const
+const GroupDef *PageDefImpl::getGroupDef() const
 {
-  GroupList *groups = partOfGroups();
-  return groups!=0 ? groups->getFirst() : 0;
+  return !partOfGroups().empty() ? partOfGroups().front() : 0;
 }
 
 QCString PageDefImpl::getOutputFileBase() const
@@ -129,9 +126,9 @@ void PageDefImpl::addInnerCompound(const Definition *def)
     PageDef *pd = const_cast<PageDef*>(toPageDef(def));
     if (pd)
     {
-      m_subPageDict->append(pd->name(),pd);
+      m_subPages.add(pd->name(),pd);
       pd->setOuterScope(this);
-      if (this==Doxygen::mainPage)
+      if (this==Doxygen::mainPage.get())
       {
         pd->setNestingLevel(m_nestingLevel);
       }
@@ -294,7 +291,7 @@ void PageDefImpl::writeDocumentation(OutputList &ol)
   Doxygen::indexList->addIndexItem(this,0,0,filterTitle(title()));
 }
 
-void PageDefImpl::writePageDocumentation(OutputList &ol)
+void PageDefImpl::writePageDocumentation(OutputList &ol) const
 {
   ol.startTextBlock();
   QCString docStr = documentation()+inbodyDocumentation();
@@ -330,9 +327,7 @@ void PageDefImpl::writePageDocumentation(OutputList &ol)
     ol.enable(OutputGenerator::Docbook);
     ol.enable(OutputGenerator::RTF);
 
-    PageSDict::Iterator pdi(*m_subPageDict);
-    PageDef *subPage=pdi.toFirst();
-    for (pdi.toFirst();(subPage=pdi.current());++pdi)
+    for (const auto &subPage : m_subPages)
     {
       SectionType sectionType = SectionType::Paragraph;
       switch (m_nestingLevel)
@@ -377,7 +372,7 @@ bool PageDefImpl::documentedPage() const
 
 bool PageDefImpl::hasSubPages() const
 {
-  return m_subPageDict->count()>0;
+  return !m_subPages.empty();
 }
 
 void PageDefImpl::setNestingLevel(int l)

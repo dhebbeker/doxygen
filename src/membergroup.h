@@ -19,6 +19,8 @@
 #define MEMBERGROUP_H
 
 #include <vector>
+#include <map>
+#include <memory>
 
 #include <qlist.h>
 #include "sortdict.h"
@@ -105,31 +107,8 @@ class MemberGroup
     RefItemVector m_xrefListItems;
 };
 
-/** A list of MemberGroup objects. */
-class MemberGroupList : public QList<MemberGroup>
-{
-};
-
-/** An iterator for MemberGroup objects in a MemberGroupList. */
-class MemberGroupListIterator : public QListIterator<MemberGroup>
-{
-  public:
-    MemberGroupListIterator(const MemberGroupList &l) :
-      QListIterator<MemberGroup>(l) {}
-};
-
-/** A sorted dictionary of MemberGroup objects. */
-class MemberGroupSDict : public SIntDict<MemberGroup>
-{
-  public:
-    MemberGroupSDict(int size=17) : SIntDict<MemberGroup>(size) {}
-   ~MemberGroupSDict() {}
- private:
-    int compareValues(const MemberGroup *item1,const MemberGroup *item2) const
-    {
-      return item1->groupId() - item2->groupId();
-    }
-};
+using MemberGroupRefList = std::vector<MemberGroup *>;
+using MemberGroupList = std::vector< std::unique_ptr<MemberGroup> >;
 
 /** Data collected for a member group */
 struct MemberGroupInfo
@@ -142,5 +121,7 @@ struct MemberGroupInfo
   QCString compoundName;
   RefItemVector m_sli;
 };
+
+using MemberGroupInfoMap = std::unordered_map< int,std::unique_ptr<MemberGroupInfo> >;
 
 #endif

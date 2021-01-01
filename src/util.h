@@ -51,7 +51,6 @@ class ExampleSDict;
 class GroupDef;
 class NamespaceSDict;
 class ClassList;
-class MemberGroupSDict;
 struct TagInfo;
 class PageDef;
 class SectionInfo;
@@ -90,32 +89,6 @@ class TextGeneratorOLImpl : public TextGeneratorIntf
                   ) const;
   private:
     OutputDocInterface &m_od;
-};
-
-//--------------------------------------------------------------------
-
-/** @brief maps a unicode character code to a list of T::ElementType's
- */
-template<class T>
-class LetterToIndexMap : public SIntDict<T>
-{
-  public:
-    LetterToIndexMap() { SIntDict<T>::setAutoDelete(TRUE); }
-    void append(uint letter,typename T::ElementType *elem)
-    {
-      T *l = SIntDict<T>::find((int)letter);
-      if (l==0)
-      {
-        l = new T(letter);
-        SIntDict<T>::inSort((int)letter,l);
-      }
-      l->append(elem);
-    }
-  private:
-    int compareValues(const T *l1, const T *l2) const
-    {
-      return (int)l1->letter()-(int)l2->letter();
-    }
 };
 
 //--------------------------------------------------------------------
@@ -291,7 +264,7 @@ QCString convertToPSString(const char *s);
 QCString getOverloadDocs();
 
 void addMembersToMemberGroup(/* in,out */ MemberList *ml,
-                             /* in,out */ MemberGroupSDict **ppMemberGroupSDict,
+                             /* in,out */ MemberGroupList *pMemberGroups,
                              /* in */     const Definition *context);
 
 int extractClassNameFromType(const QCString &type,int &pos,

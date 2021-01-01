@@ -1529,7 +1529,7 @@ public:
   inline PerlModGenerator(bool pretty) : m_output(pretty) { }
 
   void generatePerlModForMember(const MemberDef *md, const Definition *);
-  void generatePerlUserDefinedSection(const Definition *d, const MemberGroupSDict *gsd);
+  void generatePerlUserDefinedSection(const Definition *d, const MemberGroupList &mgl);
   void generatePerlModSection(const Definition *d, MemberList *ml,
 			      const char *name, const char *header=0);
   void addListOfAllMembers(const ClassDef *cd);
@@ -1776,37 +1776,33 @@ void PerlModGenerator::addListOfAllMembers(const ClassDef *cd)
   m_output.closeList();
 }
 
-/* DGA: fix #7490 Perlmod generation issue with multiple grouped functions (member groups) */
-void PerlModGenerator::generatePerlUserDefinedSection(const Definition *d, const MemberGroupSDict *gsd)
+void PerlModGenerator::generatePerlUserDefinedSection(const Definition *d, const MemberGroupList &mgl)
 {
-	if (gsd)
-	{
-		MemberGroupSDict::Iterator mgli(*gsd);
-		MemberGroup *mg;
-		m_output.openList("user_defined");
-		for (; (mg = mgli.current()); ++mgli)
-		{
-			m_output.openHash();
-			if (mg->header())
-				m_output.addFieldQuotedString("header", mg->header());
+  if (!mgl.empty())
+  {
+    m_output.openList("user_defined");
+    for (const auto &mg : mgl)
+    {
+      m_output.openHash();
+      if (mg->header())
+        m_output.addFieldQuotedString("header", mg->header());
 
-			if (mg->members())
-			{
-				m_output.openList("members");
-				MemberListIterator mli(*mg->members());
-				const MemberDef *md;
-				for (mli.toFirst(); (md = mli.current()); ++mli)
-				{
-					generatePerlModForMember(md, d);
-				}
-				m_output.closeList();
-			}
-			m_output.closeHash();
-		}
-		m_output.closeList();
-	}
+      if (mg->members())
+      {
+        m_output.openList("members");
+        MemberListIterator mli(*mg->members());
+        const MemberDef *md;
+        for (mli.toFirst(); (md = mli.current()); ++mli)
+        {
+          generatePerlModForMember(md, d);
+        }
+        m_output.closeList();
+      }
+      m_output.closeHash();
+    }
+    m_output.closeList();
+  }
 }
-/* DGA: end of fix #7490 */
 
 void PerlModGenerator::generatePerlModForClass(const ClassDef *cd)
 {
@@ -1892,7 +1888,7 @@ void PerlModGenerator::generatePerlModForClass(const ClassDef *cd)
 
   addTemplateList(cd,m_output);
   addListOfAllMembers(cd);
-  generatePerlUserDefinedSection(cd, cd->getMemberGroupSDict());
+  generatePerlUserDefinedSection(cd, cd->getMemberGroups());
 
   generatePerlModSection(cd,cd->getMemberList(MemberListType_pubTypes),"public_typedefs");
   generatePerlModSection(cd,cd->getMemberList(MemberListType_pubMethods),"public_methods");
@@ -1986,7 +1982,7 @@ void PerlModGenerator::generatePerlModForNamespace(const NamespaceDef *nd)
     m_output.closeList();
   }
 
-  generatePerlUserDefinedSection(nd, nd->getMemberGroupSDict());
+  generatePerlUserDefinedSection(nd, nd->getMemberGroups());
 
   generatePerlModSection(nd,nd->getMemberList(MemberListType_decDefineMembers),"defines");
   generatePerlModSection(nd,nd->getMemberList(MemberListType_decProtoMembers),"prototypes");
@@ -2057,8 +2053,7 @@ void PerlModGenerator::generatePerlModForFile(const FileDef *fd)
   }
   m_output.closeList();
 
-  /* DGA: fix #7494 Perlmod does not generate grouped members from files */
-  generatePerlUserDefinedSection(fd, fd->getMemberGroupSDict());
+  generatePerlUserDefinedSection(fd, fd->getMemberGroups());
 
   generatePerlModSection(fd,fd->getMemberList(MemberListType_decDefineMembers),"defines");
   generatePerlModSection(fd,fd->getMemberList(MemberListType_decProtoMembers),"prototypes");
@@ -2126,33 +2121,27 @@ void PerlModGenerator::generatePerlModForGroup(const GroupDef *gd)
     m_output.closeList();
   }
 
-  PageSDict *pl = gd->getPages();
-  if (pl)
+  if (!gd->getPages().empty())
   {
     m_output.openList("pages");
-    PageSDict::Iterator pli(*pl);
-    PageDef *pd;
-    for (pli.toFirst();(pd=pli.current());++pli)
+    for (const auto &pd : gd->getPages())
       m_output.openHash()
 	.addFieldQuotedString("title", pd->title())
 	.closeHash();
     m_output.closeList();
   }
 
-  GroupList *gl = gd->getSubGroups();
-  if (gl)
+  if (!gd->getSubGroups().empty())
   {
     m_output.openList("groups");
-    GroupListIterator gli(*gl);
-    const GroupDef *sgd;
-    for (gli.toFirst();(sgd=gli.current());++gli)
+    for (const auto &sgd : gd->getSubGroups())
       m_output.openHash()
 	.addFieldQuotedString("title", sgd->groupTitle())
 	.closeHash();
     m_output.closeList();
   }
 
-  generatePerlUserDefinedSection(gd, gd->getMemberGroupSDict());
+  generatePerlUserDefinedSection(gd, gd->getMemberGroups());
 
   generatePerlModSection(gd,gd->getMemberList(MemberListType_decDefineMembers),"defines");
   generatePerlModSection(gd,gd->getMemberList(MemberListType_decProtoMembers),"prototypes");
@@ -2218,24 +2207,20 @@ bool PerlModGenerator::generatePerlModOutput()
   m_output.closeList();
 
   m_output.openList("groups");
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  const GroupDef *gd;
-  for (;(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
-    generatePerlModForGroup(gd);
+    generatePerlModForGroup(gd.get());
   }
   m_output.closeList();
 
   m_output.openList("pages");
-  PageSDict::Iterator pdi(*Doxygen::pageSDict);
-  PageDef *pd=0;
-  for (pdi.toFirst();(pd=pdi.current());++pdi)
+  for (const auto &pd : *Doxygen::pageLinkedMap)
   {
-    generatePerlModForPage(pd);
+    generatePerlModForPage(pd.get());
   }
   if (Doxygen::mainPage)
   {
-    generatePerlModForPage(Doxygen::mainPage);
+    generatePerlModForPage(Doxygen::mainPage.get());
   }
   m_output.closeList();
 

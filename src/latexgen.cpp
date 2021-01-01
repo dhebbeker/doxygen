@@ -998,9 +998,7 @@ void LatexGenerator::startIndexSection(IndexSections is)
       break;
     case isModuleDocumentation:
       {
-        GroupSDict::Iterator gli(*Doxygen::groupSDict);
-        GroupDef *gd;
-        for (gli.toFirst();(gd=gli.current());++gli)
+        for (const auto &gd : *Doxygen::groupLinkedMap)
         {
           if (!gd->isReference())
           {
@@ -1013,9 +1011,7 @@ void LatexGenerator::startIndexSection(IndexSections is)
       break;
     case isDirDocumentation:
       {
-        SDict<DirDef>::Iterator dli(*Doxygen::directories);
-        DirDef *dd;
-        for (dli.toFirst();(dd=dli.current());++dli)
+        for (const auto &dd : *Doxygen::dirLinkedMap)
         {
           if (dd->isLinkableInProject())
           {
@@ -1144,48 +1140,34 @@ void LatexGenerator::endIndexSection(IndexSections is)
       break;
     case isModuleDocumentation:
       {
-        GroupSDict::Iterator gli(*Doxygen::groupSDict);
-        GroupDef *gd;
         bool found=FALSE;
-        for (gli.toFirst();(gd=gli.current()) && !found;++gli)
+        for (const auto &gd : *Doxygen::groupLinkedMap)
         {
           if (!gd->isReference())
           {
-            t << "}\n\\input{" << gd->getOutputFileBase() << "}\n";
-            found=TRUE;
-          }
-        }
-        for (;(gd=gli.current());++gli)
-        {
-          if (!gd->isReference())
-          {
-            //if (compactLatex) t << "\\input"; else t << "\\include";
-            t << "\\include";
-            t << "{" << gd->getOutputFileBase() << "}\n";
+            if (!found)
+            {
+              t << "}\n";
+              found=TRUE;
+            }
+            t << "\\input{" << gd->getOutputFileBase() << "}\n";
           }
         }
       }
       break;
     case isDirDocumentation:
       {
-        SDict<DirDef>::Iterator dli(*Doxygen::directories);
-        DirDef *dd;
         bool found=FALSE;
-        for (dli.toFirst();(dd=dli.current()) && !found;++dli)
+        for (const auto &dd : *Doxygen::dirLinkedMap)
         {
           if (dd->isLinkableInProject())
           {
-            t << "}\n\\input{" << dd->getOutputFileBase() << "}\n";
-            found=TRUE;
-          }
-        }
-        for (;(dd=dli.current());++dli)
-        {
-          if (dd->isLinkableInProject())
-          {
-            //if (compactLatex) t << "\\input"; else t << "\\include";
-            t << "\\input";
-            t << "{" << dd->getOutputFileBase() << "}\n";
+            if (!found)
+            {
+              t << "}\n";
+              found = TRUE;
+            }
+            t << "\\input{" << dd->getOutputFileBase() << "}\n";
           }
         }
       }
@@ -1256,17 +1238,9 @@ void LatexGenerator::endIndexSection(IndexSections is)
     case isExampleDocumentation:
       {
         t << "}\n";
-        PageSDict::Iterator pdi(*Doxygen::exampleSDict);
-        PageDef *pd=pdi.toFirst();
-        if (pd)
+        for (const auto &pd : *Doxygen::exampleLinkedMap)
         {
           t << "\\input{" << pd->getOutputFileBase() << "}\n";
-        }
-        for (++pdi;(pd=pdi.current());++pdi)
-        {
-          //if (compactLatex) t << "\\input" ; else t << "\\include";
-          t << "\\input";
-          t << "{" << pd->getOutputFileBase() << "}\n";
         }
       }
       break;
@@ -1274,10 +1248,8 @@ void LatexGenerator::endIndexSection(IndexSections is)
       {
         t << "}\n";
 #if 0
-        PageSDict::Iterator pdi(*Doxygen::pageSDict);
-        PageDef *pd=pdi.toFirst();
         bool first=TRUE;
-        for (pdi.toFirst();(pd=pdi.current());++pdi)
+        for (const auto *pd : Doxygen::pageLinkedMap)
         {
           if (!pd->getGroupDef() && !pd->isReference())
           {

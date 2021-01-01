@@ -123,9 +123,9 @@ NamespaceLinkedMap   *Doxygen::namespaceLinkedMap = 0;
 MemberNameLinkedMap  *Doxygen::memberNameLinkedMap = 0;
 MemberNameLinkedMap  *Doxygen::functionNameLinkedMap = 0;
 FileNameLinkedMap    *Doxygen::inputNameLinkedMap = 0;
-GroupSDict           *Doxygen::groupSDict = 0;
-PageSDict            *Doxygen::pageSDict = 0;
-PageSDict            *Doxygen::exampleSDict = 0;
+GroupLinkedMap       *Doxygen::groupLinkedMap = 0;
+PageLinkedMap        *Doxygen::pageLinkedMap = 0;
+PageLinkedMap        *Doxygen::exampleLinkedMap = 0;
 StringDict            Doxygen::aliasDict(257);          // aliases
 StringSet             Doxygen::inputPaths;
 FileNameLinkedMap    *Doxygen::includeNameLinkedMap = 0;     // include names
@@ -134,27 +134,24 @@ FileNameLinkedMap    *Doxygen::imageNameLinkedMap = 0;       // images
 FileNameLinkedMap    *Doxygen::dotFileNameLinkedMap = 0;     // dot files
 FileNameLinkedMap    *Doxygen::mscFileNameLinkedMap = 0;     // msc files
 FileNameLinkedMap    *Doxygen::diaFileNameLinkedMap = 0;     // dia files
-StringUnorderedMap    Doxygen::namespaceAliasMap;      // all namespace aliases
-StringDict            Doxygen::tagDestinationDict(257); // all tag locations
-StringUnorderedSet    Doxygen::expandAsDefinedSet; // all macros that should be expanded
-QIntDict<MemberGroupInfo> Doxygen::memGrpInfoDict(1009); // dictionary of the member groups heading
-PageDef              *Doxygen::mainPage = 0;
+StringUnorderedMap    Doxygen::namespaceAliasMap;            // all namespace aliases
+StringDict            Doxygen::tagDestinationDict(257);      // all tag locations
+StringUnorderedSet    Doxygen::expandAsDefinedSet;           // all macros that should be expanded
+MemberGroupInfoMap    Doxygen::memberGroupInfoMap;           // dictionary of the member groups heading
+std::unique_ptr<PageDef> Doxygen::mainPage;
 bool                  Doxygen::insideMainPage = FALSE; // are we generating docs for the main page?
 NamespaceDefMutable  *Doxygen::globalScope = 0;
 bool                  Doxygen::parseSourcesNeeded = FALSE;
 SearchIndexIntf      *Doxygen::searchIndex=0;
 SymbolMap<Definition> Doxygen::symbolMap;
-QDict<Definition>    *Doxygen::clangUsrMap = 0;
+ClangUsrMap          *Doxygen::clangUsrMap = 0;
 bool                  Doxygen::outputToWizard=FALSE;
-QDict<int> *          Doxygen::htmlDirMap = 0;
 Cache<std::string,LookupInfo> *Doxygen::lookupCache;
-DirSDict             *Doxygen::directories;
+DirLinkedMap         *Doxygen::dirLinkedMap;
 SDict<DirRelation>    Doxygen::dirRelations(257);
 ParserManager        *Doxygen::parserManager = 0;
 QCString              Doxygen::htmlFileExtension;
 bool                  Doxygen::suppressDocWarnings = FALSE;
-QCString              Doxygen::objDBFileName;
-QCString              Doxygen::entryDBFileName;
 QCString              Doxygen::filterDBFileName;
 IndexList            *Doxygen::indexList;
 int                   Doxygen::subpageNestingLevel = 0;
@@ -183,8 +180,8 @@ void clearAll()
   Doxygen::classLinkedMap->clear();
   Doxygen::hiddenClassLinkedMap->clear();
   Doxygen::namespaceLinkedMap->clear();
-  Doxygen::pageSDict->clear();
-  Doxygen::exampleSDict->clear();
+  Doxygen::pageLinkedMap->clear();
+  Doxygen::exampleLinkedMap->clear();
   Doxygen::inputNameLinkedMap->clear();
   Doxygen::includeNameLinkedMap->clear();
   Doxygen::exampleNameLinkedMap->clear();
@@ -195,7 +192,7 @@ void clearAll()
   Doxygen::tagDestinationDict.clear();
   SectionManager::instance().clear();
   CitationManager::instance().clear();
-  delete Doxygen::mainPage; Doxygen::mainPage=0;
+  Doxygen::mainPage.reset();
   FormulaManager::instance().clear();
 }
 
@@ -261,6 +258,8 @@ void statistics()
   Doxygen::mscFileNameDict->statistics();
   fprintf(stderr,"--- diaFileNameDict stats ----\n");
   Doxygen::diaFileNameDict->statistics();
+  fprintf(stderr,"--- memGrpInfoDict stats ----\n");
+  Doxygen::memGrpInfoDict.statistics();
 #endif
   //fprintf(stderr,"--- g_excludeNameDict stats ----\n");
   //g_excludeNameDict.statistics();
@@ -270,8 +269,6 @@ void statistics()
   Doxygen::tagDestinationDict.statistics();
   fprintf(stderr,"--- g_compoundKeywordDict stats ----\n");
   g_compoundKeywordDict.statistics();
-  fprintf(stderr,"--- memGrpInfoDict stats ----\n");
-  Doxygen::memGrpInfoDict.statistics();
 }
 
 
@@ -334,7 +331,7 @@ static void addRelatedPage(Entry *root)
   GroupDef *gd=0;
   for (const Grouping &g : root->groups)
   {
-    if (!g.groupname.isEmpty() && (gd=Doxygen::groupSDict->find(g.groupname))) break;
+    if (!g.groupname.isEmpty() && (gd=Doxygen::groupLinkedMap->find(g.groupname))) break;
   }
   //printf("---> addRelatedPage() %s gd=%p\n",root->name.data(),gd);
   QCString doc;
@@ -375,7 +372,7 @@ static void buildGroupListFiltered(const Entry *root,bool additional, bool inclu
     if ((root->groupDocType==Entry::GROUPDOC_NORMAL && !additional) ||
         (root->groupDocType!=Entry::GROUPDOC_NORMAL &&  additional))
     {
-      GroupDef *gd = Doxygen::groupSDict->find(root->name);
+      GroupDef *gd = Doxygen::groupLinkedMap->find(root->name);
       //printf("Processing group '%s':'%s' add=%d ext=%d gd=%p\n",
       //    root->type.data(),root->name.data(),additional,includeExternal,gd);
 
@@ -402,19 +399,22 @@ static void buildGroupListFiltered(const Entry *root,bool additional, bool inclu
       {
         if (root->tagInfo())
         {
-          gd = createGroupDef(root->fileName,root->startLine,root->name,root->type,root->tagInfo()->fileName);
+          gd = Doxygen::groupLinkedMap->add(root->name,
+               std::unique_ptr<GroupDef>(
+                  createGroupDef(root->fileName,root->startLine,root->name,root->type,root->tagInfo()->fileName)));
           gd->setReference(root->tagInfo()->tagName);
         }
         else
         {
-          gd = createGroupDef(root->fileName,root->startLine,root->name,root->type);
+          gd = Doxygen::groupLinkedMap->add(root->name,
+               std::unique_ptr<GroupDef>(
+                  createGroupDef(root->fileName,root->startLine,root->name,root->type)));
         }
         gd->setBriefDescription(root->brief,root->briefFile,root->briefLine);
         // allow empty docs for group
         gd->setDocumentation(!root->doc.isEmpty() ? root->doc : QCString(" "),root->docFile,root->docLine,FALSE);
         gd->setInbodyDocumentation( root->inbodyDocs, root->inbodyFile, root->inbodyLine );
         gd->addSectionsToDefinition(root->anchors);
-        Doxygen::groupSDict->append(root->name,gd);
         gd->setRefItems(root->sli);
         gd->setLanguage(root->lang);
       }
@@ -444,7 +444,7 @@ static void findGroupScope(const Entry *root)
       root->parent() && !root->parent()->name.isEmpty())
   {
     GroupDef *gd;
-    if ((gd=Doxygen::groupSDict->find(root->name)))
+    if ((gd=Doxygen::groupLinkedMap->find(root->name)))
     {
       QCString scope = root->parent()->name;
       if (root->parent()->section==Entry::PACKAGEDOC_SEC)
@@ -471,7 +471,7 @@ static void organizeSubGroupsFiltered(const Entry *root,bool additional)
         (root->groupDocType!=Entry::GROUPDOC_NORMAL && additional))
     {
       GroupDef *gd;
-      if ((gd=Doxygen::groupSDict->find(root->name)))
+      if ((gd=Doxygen::groupLinkedMap->find(root->name)))
       {
         //printf("adding %s to group %s\n",root->name.data(),gd->name().data());
         addGroupToGroups(root,gd);
@@ -526,7 +526,7 @@ static void buildFileList(const Entry *root)
       for (const Grouping &g : root->groups)
       {
         GroupDef *gd=0;
-        if (!g.groupname.isEmpty() && (gd=Doxygen::groupSDict->find(g.groupname)))
+        if (!g.groupname.isEmpty() && (gd=Doxygen::groupLinkedMap->find(g.groupname)))
         {
           gd->addFile(fd);
           fd->makePartOfGroup(gd);
@@ -1089,39 +1089,44 @@ static void addClassToContext(const Entry *root)
           std::unique_ptr<ClassDef>(
             createClassDef(tagInfo?tagName:root->fileName,root->startLine,root->startColumn,
                fullName,sec,tagName,refFileName,TRUE,root->spec&Entry::Enum) )));
-    Debug::print(Debug::Classes,0,"  New class '%s' (sec=0x%08x)! #tArgLists=%d tagInfo=%p hidden=%d artificial=%d\n",
-        qPrint(fullName),sec,root->tArgLists.size(), tagInfo,root->hidden,root->artificial);
-    cd->setDocumentation(root->doc,root->docFile,root->docLine); // copy docs to definition
-    cd->setBriefDescription(root->brief,root->briefFile,root->briefLine);
-    cd->setLanguage(root->lang);
-    cd->setId(root->id);
-    cd->setHidden(root->hidden);
-    cd->setArtificial(root->artificial);
-    cd->setClassSpecifier(root->spec);
-    cd->setTypeConstraints(root->typeConstr);
-    //printf("new ClassDef %s tempArgList=%p specScope=%s\n",fullName.data(),root->tArgList,root->scopeSpec.data());
-
-    //printf("class %s template args=%s\n",fullName.data(),
-    //    tArgList ? tempArgListToString(tArgList,root->lang).data() : "<none>");
-    if (tArgList)
+    if (cd)
     {
-      cd->setTemplateArguments(*tArgList);
+      Debug::print(Debug::Classes,0,"  New class '%s' (sec=0x%08x)! #tArgLists=%d tagInfo=%p hidden=%d artificial=%d\n",
+          qPrint(fullName),sec,root->tArgLists.size(), tagInfo,root->hidden,root->artificial);
+      cd->setDocumentation(root->doc,root->docFile,root->docLine); // copy docs to definition
+      cd->setBriefDescription(root->brief,root->briefFile,root->briefLine);
+      cd->setLanguage(root->lang);
+      cd->setId(root->id);
+      cd->setHidden(root->hidden);
+      cd->setArtificial(root->artificial);
+      cd->setClassSpecifier(root->spec);
+      cd->setTypeConstraints(root->typeConstr);
+      //printf("new ClassDef %s tempArgList=%p specScope=%s\n",fullName.data(),root->tArgList,root->scopeSpec.data());
+
+      //printf("class %s template args=%s\n",fullName.data(),
+      //    tArgList ? tempArgListToString(tArgList,root->lang).data() : "<none>");
+      if (tArgList)
+      {
+        cd->setTemplateArguments(*tArgList);
+      }
+      cd->setProtection(root->protection);
+      cd->setIsStatic(root->stat);
+
+      // file definition containing the class cd
+      cd->setBodySegment(root->startLine,root->bodyLine,root->endBodyLine);
+      cd->setBodyDef(fd);
+
+      cd->setMetaData(root->metaData);
+
+      // see if the class is found inside a namespace
+      //bool found=addNamespace(root,cd);
+
+      cd->insertUsedFile(fd);
     }
-    cd->setProtection(root->protection);
-    cd->setIsStatic(root->stat);
-
-    // file definition containing the class cd
-    cd->setBodySegment(root->startLine,root->bodyLine,root->endBodyLine);
-    cd->setBodyDef(fd);
-
-    cd->setMetaData(root->metaData);
-
-    // see if the class is found inside a namespace
-    //bool found=addNamespace(root,cd);
-
-    cd->insertUsedFile(fd);
-
-
+    else
+    {
+      Debug::print(Debug::Classes,0,"  Not added class '%s', already exists as alias\n", qPrint(fullName));
+    }
   }
 
   cd->addSectionsToDefinition(root->anchors);
@@ -1296,19 +1301,19 @@ void distributeClassGroupRelations()
   {
     //printf("Checking %s\n",cd->name().data());
     // distribute the group to nested classes as well
-    if (visitedClasses.find(cd.get())==visitedClasses.end() && cd->partOfGroups()!=0)
+    if (visitedClasses.find(cd.get())==visitedClasses.end() && !cd->partOfGroups().empty())
     {
       //printf("  Candidate for merging\n");
-      GroupDef *gd = cd->partOfGroups()->at(0);
+      const GroupDef *gd = cd->partOfGroups().front();
       for (const auto &ncd : cd->getClasses())
       {
         ClassDefMutable *ncdm = toClassDefMutable(ncd);
-        if (ncdm && ncdm->partOfGroups()==0)
+        if (ncdm && ncdm->partOfGroups().empty())
         {
           //printf("  Adding %s to group '%s'\n",ncd->name().data(),
           //    gd->groupTitle());
           ncdm->makePartOfGroup(gd);
-          gd->addClass(ncdm);
+          const_cast<GroupDef*>(gd)->addClass(ncdm);
         }
       }
       visitedClasses.insert(cd.get()); // only visit every class once
@@ -1333,64 +1338,61 @@ static ClassDefMutable *createTagLessInstance(const ClassDef *rootCd,const Class
                               templ->getDefColumn(),
                               fullName,
                               templ->compoundType()))));
-  cd->setDocumentation(templ->documentation(),templ->docFile(),templ->docLine()); // copy docs to definition
-  cd->setBriefDescription(templ->briefDescription(),templ->briefFile(),templ->briefLine());
-  cd->setLanguage(templ->getLanguage());
-  cd->setBodySegment(templ->getDefLine(),templ->getStartBodyLine(),templ->getEndBodyLine());
-  cd->setBodyDef(templ->getBodyDef());
-
-  cd->setOuterScope(rootCd->getOuterScope());
-  if (rootCd->getOuterScope()!=Doxygen::globalScope)
+  if (cd)
   {
-    DefinitionMutable *outerScope = toDefinitionMutable(rootCd->getOuterScope());
-    if (outerScope)
+    cd->setDocumentation(templ->documentation(),templ->docFile(),templ->docLine()); // copy docs to definition
+    cd->setBriefDescription(templ->briefDescription(),templ->briefFile(),templ->briefLine());
+    cd->setLanguage(templ->getLanguage());
+    cd->setBodySegment(templ->getDefLine(),templ->getStartBodyLine(),templ->getEndBodyLine());
+    cd->setBodyDef(templ->getBodyDef());
+
+    cd->setOuterScope(rootCd->getOuterScope());
+    if (rootCd->getOuterScope()!=Doxygen::globalScope)
     {
-      outerScope->addInnerCompound(cd);
+      DefinitionMutable *outerScope = toDefinitionMutable(rootCd->getOuterScope());
+      if (outerScope)
+      {
+        outerScope->addInnerCompound(cd);
+      }
     }
-  }
 
-  FileDef *fd = templ->getFileDef();
-  if (fd)
-  {
-    cd->setFileDef(fd);
-    fd->insertClass(cd);
-  }
-  GroupList *groups = rootCd->partOfGroups();
-  if ( groups!=0 )
-  {
-    GroupListIterator gli(*groups);
-    GroupDef *gd;
-    for (gli.toFirst();(gd=gli.current());++gli)
+    FileDef *fd = templ->getFileDef();
+    if (fd)
+    {
+      cd->setFileDef(fd);
+      fd->insertClass(cd);
+    }
+    for (const auto &gd : rootCd->partOfGroups())
     {
       cd->makePartOfGroup(gd);
-      gd->addClass(cd);
+      const_cast<GroupDef*>(gd)->addClass(cd);
     }
-  }
 
-  MemberList *ml = templ->getMemberList(MemberListType_pubAttribs);
-  if (ml)
-  {
-    MemberListIterator li(*ml);
-    MemberDef *md;
-    for (li.toFirst();(md=li.current());++li)
+    MemberList *ml = templ->getMemberList(MemberListType_pubAttribs);
+    if (ml)
     {
-      //printf("    Member %s type=%s\n",md->name().data(),md->typeString());
-      MemberDefMutable *imd = createMemberDef(md->getDefFileName(),md->getDefLine(),md->getDefColumn(),
-                                     md->typeString(),md->name(),md->argsString(),md->excpString(),
-                                     md->protection(),md->virtualness(),md->isStatic(),Member,
-                                     md->memberType(),
-                                     ArgumentList(),ArgumentList(),"");
-      imd->setMemberClass(cd);
-      imd->setDocumentation(md->documentation(),md->docFile(),md->docLine());
-      imd->setBriefDescription(md->briefDescription(),md->briefFile(),md->briefLine());
-      imd->setInbodyDocumentation(md->inbodyDocumentation(),md->inbodyFile(),md->inbodyLine());
-      imd->setMemberSpecifiers(md->getMemberSpecifiers());
-      imd->setMemberGroupId(md->getMemberGroupId());
-      imd->setInitializer(md->initializer());
-      imd->setMaxInitLines(md->initializerLines());
-      imd->setBitfields(md->bitfieldString());
-      imd->setLanguage(md->getLanguage());
-      cd->insertMember(imd);
+      MemberListIterator li(*ml);
+      MemberDef *md;
+      for (li.toFirst();(md=li.current());++li)
+      {
+        //printf("    Member %s type=%s\n",md->name().data(),md->typeString());
+        MemberDefMutable *imd = createMemberDef(md->getDefFileName(),md->getDefLine(),md->getDefColumn(),
+            md->typeString(),md->name(),md->argsString(),md->excpString(),
+            md->protection(),md->virtualness(),md->isStatic(),Member,
+            md->memberType(),
+            ArgumentList(),ArgumentList(),"");
+        imd->setMemberClass(cd);
+        imd->setDocumentation(md->documentation(),md->docFile(),md->docLine());
+        imd->setBriefDescription(md->briefDescription(),md->briefFile(),md->briefLine());
+        imd->setInbodyDocumentation(md->inbodyDocumentation(),md->inbodyFile(),md->inbodyLine());
+        imd->setMemberSpecifiers(md->getMemberSpecifiers());
+        imd->setMemberGroupId(md->getMemberGroupId());
+        imd->setInitializer(md->initializer());
+        imd->setMaxInitLines(md->initializerLines());
+        imd->setBitfields(md->bitfieldString());
+        imd->setLanguage(md->getLanguage());
+        cd->insertMember(imd);
+      }
     }
   }
   return cd;
@@ -1435,29 +1437,32 @@ static void processTagLessClasses(const ClassDef *rootCd,
               if (!prefix.isEmpty()) name.prepend(prefix+".");
               //printf("    found %s for class %s\n",name.data(),cd->name().data());
               ClassDefMutable *ncd = createTagLessInstance(rootCd,icd,name);
-              processTagLessClasses(rootCd,icd,ncd,name,count+1);
-              //printf("    addTagged %s to %s\n",ncd->name().data(),tagParentCd->name().data());
-              ncd->setTagLessReference(icd);
-
-              // replace tag-less type for generated/original member
-              // by newly created class name.
-              // note the difference between changing cd and tagParentCd.
-              // for the initial call this is the same pointer, but for
-              // recursive calls cd is the original tag-less struct (of which
-              // there is only one instance) and tagParentCd is the newly
-              // generated tagged struct of which there can be multiple instances!
-              MemberList *pml = tagParentCd->getMemberList(MemberListType_pubAttribs);
-              if (pml)
+              if (ncd)
               {
-                MemberListIterator pli(*pml);
-                MemberDef *pmd;
-                for (pli.toFirst();(pmd=pli.current());++pli)
+                processTagLessClasses(rootCd,icd,ncd,name,count+1);
+                //printf("    addTagged %s to %s\n",ncd->name().data(),tagParentCd->name().data());
+                ncd->setTagLessReference(icd);
+
+                // replace tag-less type for generated/original member
+                // by newly created class name.
+                // note the difference between changing cd and tagParentCd.
+                // for the initial call this is the same pointer, but for
+                // recursive calls cd is the original tag-less struct (of which
+                // there is only one instance) and tagParentCd is the newly
+                // generated tagged struct of which there can be multiple instances!
+                MemberList *pml = tagParentCd->getMemberList(MemberListType_pubAttribs);
+                if (pml)
                 {
-                  MemberDefMutable *pmdm = toMemberDefMutable(pmd);
-                  if (pmdm && pmd->name()==md->name())
+                  MemberListIterator pli(*pml);
+                  MemberDef *pmd;
+                  for (pli.toFirst();(pmd=pli.current());++pli)
                   {
-                    pmdm->setAccessorType(ncd,substitute(pmd->typeString(),icd->name(),ncd->name()));
-                    //pmd->setType(substitute(pmd->typeString(),icd->name(),ncd->name()));
+                    MemberDefMutable *pmdm = toMemberDefMutable(pmd);
+                    if (pmdm && pmd->name()==md->name())
+                    {
+                      pmdm->setAccessorType(ncd,substitute(pmd->typeString(),icd->name(),ncd->name()));
+                      //pmd->setType(substitute(pmd->typeString(),icd->name(),ncd->name()));
+                    }
                   }
                 }
               }
@@ -1469,28 +1474,40 @@ static void processTagLessClasses(const ClassDef *rootCd,
   }
 }
 
-static void findTagLessClasses(const ClassDef *cd)
+static void findTagLessClasses(std::vector<ClassDefMutable*> &candidates,const ClassDef *cd)
 {
   for (const auto &icd : cd->getClasses())
   {
     if (icd->name().find("@")==-1) // process all non-anonymous inner classes
     {
-      findTagLessClasses(icd);
+      findTagLessClasses(candidates,icd);
     }
   }
 
-  processTagLessClasses(cd,cd,toClassDefMutable(cd),"",0); // process tag less inner struct/classes (if any)
+  ClassDefMutable *cdm = toClassDefMutable(cd);
+  if (cdm)
+  {
+    candidates.push_back(cdm);
+  }
 }
 
 static void findTagLessClasses()
 {
+  std::vector<ClassDefMutable *> candidates;
   for (const auto &cd : *Doxygen::classLinkedMap)
   {
     Definition *scope = cd->getOuterScope();
     if (scope && scope->definitionType()!=Definition::TypeClass) // that is not nested
     {
-      findTagLessClasses(cd.get());
+      findTagLessClasses(candidates,cd.get());
     }
+  }
+
+  // since processTagLessClasses is potentially adding classes to Doxygen::classLinkedMap
+  // we need to call it outside of the loop above, otherwise the iterator gets invalidated!
+  for (auto &cd : candidates)
+  {
+    processTagLessClasses(cd,cd,cd,"",0); // process tag less inner struct/classes
   }
 }
 
@@ -1521,32 +1538,36 @@ static void buildNamespaceList(const Entry *root)
     {
       //printf("Found namespace %s in %s at line %d\n",root->name.data(),
       //        root->fileName.data(), root->startLine);
-      NamespaceDefMutable *nd;
-      if ((nd=toNamespaceDefMutable(Doxygen::namespaceLinkedMap->find(fullName)))) // existing namespace
+      NamespaceDef *ndi = Doxygen::namespaceLinkedMap->find(fullName);
+      if (ndi) // existing namespace
       {
-        nd->setDocumentation(root->doc,root->docFile,root->docLine);
-        nd->setName(fullName); // change name to match docs
-        nd->addSectionsToDefinition(root->anchors);
-        nd->setBriefDescription(root->brief,root->briefFile,root->briefLine);
-        if (nd->getLanguage()==SrcLangExt_Unknown)
+        NamespaceDefMutable *nd = toNamespaceDefMutable(ndi);
+        if (nd) // non-inline namespace
         {
-          nd->setLanguage(root->lang);
-        }
-        if (root->tagInfo()==0) // if we found the namespace in a tag file
-                                   // and also in a project file, then remove
-                                   // the tag file reference
-        {
-          nd->setReference("");
-          nd->setFileName(fullName);
-        }
-        nd->setMetaData(root->metaData);
+          nd->setDocumentation(root->doc,root->docFile,root->docLine);
+          nd->setName(fullName); // change name to match docs
+          nd->addSectionsToDefinition(root->anchors);
+          nd->setBriefDescription(root->brief,root->briefFile,root->briefLine);
+          if (nd->getLanguage()==SrcLangExt_Unknown)
+          {
+            nd->setLanguage(root->lang);
+          }
+          if (root->tagInfo()==0) // if we found the namespace in a tag file
+            // and also in a project file, then remove
+            // the tag file reference
+          {
+            nd->setReference("");
+            nd->setFileName(fullName);
+          }
+          nd->setMetaData(root->metaData);
 
-        // file definition containing the namespace nd
-        FileDef *fd=root->fileDef();
-        // insert the namespace in the file definition
-        if (fd) fd->insertNamespace(nd);
-        addNamespaceToGroups(root,nd);
-        nd->setRefItems(root->sli);
+          // file definition containing the namespace nd
+          FileDef *fd=root->fileDef();
+          // insert the namespace in the file definition
+          if (fd) fd->insertNamespace(nd);
+          addNamespaceToGroups(root,nd);
+          nd->setRefItems(root->sli);
+        }
       }
       else // fresh namespace
       {
@@ -1560,7 +1581,7 @@ static void buildNamespaceList(const Entry *root)
         }
         //printf("++ new namespace %s lang=%s tagName=%s\n",fullName.data(),langToString(root->lang).data(),tagName.data());
         // add namespace to the list
-        nd = toNamespaceDefMutable(
+        NamespaceDefMutable *nd = toNamespaceDefMutable(
             Doxygen::namespaceLinkedMap->add(fullName,
               std::unique_ptr<NamespaceDef>(
                 createNamespaceDef(tagInfo?tagName:root->fileName,root->startLine,
@@ -1628,9 +1649,9 @@ static void buildNamespaceList(const Entry *root)
                 if (dm)
                 {
                   NamespaceDef *aliasNd = createNamespaceDefAlias(d,nd);
-                  //printf("adding %s to %s\n",qPrint(aliasNd->name()),qPrint(d->name()));
                   dm->addInnerCompound(aliasNd);
                   QCString aliasName = aliasNd->name();
+                  //printf("adding alias %s (%p) to %s\n",qPrint(aliasName),aliasNd,qPrint(d->name()));
                   Doxygen::namespaceLinkedMap->add(
                       aliasName,std::unique_ptr<NamespaceDef>(aliasNd));
                 }
@@ -1767,38 +1788,41 @@ static void findUsingDirectives(const Entry *root)
             Doxygen::namespaceLinkedMap->add(name,
               std::unique_ptr<NamespaceDef>(
                  createNamespaceDef(root->fileName,root->startLine,root->startColumn,name))));
-        nd->setDocumentation(root->doc,root->docFile,root->docLine); // copy docs to definition
-        nd->setBriefDescription(root->brief,root->briefFile,root->briefLine);
-        nd->addSectionsToDefinition(root->anchors);
-        //printf("** Adding namespace %s hidden=%d\n",name.data(),root->hidden);
-        nd->setHidden(root->hidden);
-        nd->setArtificial(TRUE);
-        nd->setLanguage(root->lang);
-        nd->setId(root->id);
-        nd->setMetaData(root->metaData);
-        nd->setInline((root->spec&Entry::Inline)!=0);
-
-        //QListIterator<Grouping> gli(*root->groups);
-        //Grouping *g;
-        //for (;(g=gli.current());++gli)
-        for (const Grouping &g : root->groups)
+        if (nd)
         {
-          GroupDef *gd=0;
-          if (!g.groupname.isEmpty() && (gd=Doxygen::groupSDict->find(g.groupname)))
-            gd->addNamespace(nd);
-        }
+          nd->setDocumentation(root->doc,root->docFile,root->docLine); // copy docs to definition
+          nd->setBriefDescription(root->brief,root->briefFile,root->briefLine);
+          nd->addSectionsToDefinition(root->anchors);
+          //printf("** Adding namespace %s hidden=%d\n",name.data(),root->hidden);
+          nd->setHidden(root->hidden);
+          nd->setArtificial(TRUE);
+          nd->setLanguage(root->lang);
+          nd->setId(root->id);
+          nd->setMetaData(root->metaData);
+          nd->setInline((root->spec&Entry::Inline)!=0);
 
-        // insert the namespace in the file definition
-        if (fd)
-        {
-          fd->insertNamespace(nd);
-          fd->addUsingDirective(nd);
-        }
+          //QListIterator<Grouping> gli(*root->groups);
+          //Grouping *g;
+          //for (;(g=gli.current());++gli)
+          for (const Grouping &g : root->groups)
+          {
+            GroupDef *gd=0;
+            if (!g.groupname.isEmpty() && (gd=Doxygen::groupLinkedMap->find(g.groupname)))
+              gd->addNamespace(nd);
+          }
 
-        // the empty string test is needed for extract all case
-        nd->setBriefDescription(root->brief,root->briefFile,root->briefLine);
-        nd->insertUsedFile(fd);
-        nd->setRefItems(root->sli);
+          // insert the namespace in the file definition
+          if (fd)
+          {
+            fd->insertNamespace(nd);
+            fd->addUsingDirective(nd);
+          }
+
+          // the empty string test is needed for extract all case
+          nd->setBriefDescription(root->brief,root->briefFile,root->briefLine);
+          nd->insertUsedFile(fd);
+          nd->setRefItems(root->sli);
+        }
       }
     }
   }
@@ -1884,8 +1908,11 @@ static void findUsingDeclarations(const Entry *root)
              Doxygen::hiddenClassLinkedMap->add(name,
                std::unique_ptr<ClassDef>(
                  createClassDef( "<using>",1,1, name, ClassDef::Class))));
-        usingCd->setArtificial(TRUE);
-        usingCd->setLanguage(root->lang);
+        if (usingCd)
+        {
+          usingCd->setArtificial(TRUE);
+          usingCd->setLanguage(root->lang);
+        }
       }
       else
       {
@@ -3471,7 +3498,7 @@ static void buildFunctionList(const Entry *root)
                 GroupDef *gd=0;
                 if (!root->groups.empty() && !root->groups.front().groupname.isEmpty())
                 {
-                  gd = Doxygen::groupSDict->find(root->groups.front().groupname);
+                  gd = Doxygen::groupLinkedMap->find(root->groups.front().groupname);
                 }
                 //printf("match!\n");
                 //printf("mnd=%p rnd=%p nsName=%s rnsName=%s\n",mnd,rnd,nsName.data(),rnsName.data());
@@ -3972,10 +3999,13 @@ static void findUsedClassesForClass(const Entry *root,
                           masterCd->getDefColumn(),
                           usedName,
                           ClassDef::Class))));
-                //printf("making %s a template argument!!!\n",usedCd->name().data());
-                usedCd->makeTemplateArgument();
-                usedCd->setUsedOnly(TRUE);
-                usedCd->setLanguage(masterCd->getLanguage());
+                if (usedCd)
+                {
+                  //printf("making %s a template argument!!!\n",usedCd->name().data());
+                  usedCd->makeTemplateArgument();
+                  usedCd->setUsedOnly(TRUE);
+                  usedCd->setLanguage(masterCd->getLanguage());
+                }
               }
               if (isArtificial) usedCd->setArtificial(TRUE);
               Debug::print(Debug::Classes,0,"      Adding used class '%s' (1)\n", qPrint(usedCd->name()));
@@ -4021,8 +4051,11 @@ static void findUsedClassesForClass(const Entry *root,
                              masterCd->getDefFileName(),masterCd->getDefLine(),
                              masterCd->getDefColumn(),
                              type,ClassDef::Class))));
-            usedCd->setUsedOnly(TRUE);
-            usedCd->setLanguage(masterCd->getLanguage());
+            if (usedCd)
+            {
+              usedCd->setUsedOnly(TRUE);
+              usedCd->setLanguage(masterCd->getLanguage());
+            }
           }
           if (usedCd)
           {
@@ -4517,8 +4550,8 @@ static bool findClassRelation(
           baseClass=0;
           if (isATemplateArgument)
           {
-            baseClass=toClassDefMutable(Doxygen::hiddenClassLinkedMap->find(baseClassName));
-            if (baseClass==0)
+            baseClass = toClassDefMutable(Doxygen::hiddenClassLinkedMap->find(baseClassName));
+            if (baseClass==0) // not found (or alias)
             {
               baseClass= toClassDefMutable(
                 Doxygen::hiddenClassLinkedMap->add(baseClassName,
@@ -4526,14 +4559,16 @@ static bool findClassRelation(
                     createClassDef(root->fileName,root->startLine,root->startColumn,
                                  baseClassName,
                                  ClassDef::Class))));
-              if (isArtificial) baseClass->setArtificial(TRUE);
-              baseClass->setLanguage(root->lang);
-
+              if (baseClass) // really added (not alias)
+              {
+                if (isArtificial) baseClass->setArtificial(TRUE);
+                baseClass->setLanguage(root->lang);
+              }
             }
           }
           else
           {
-            baseClass=toClassDefMutable(Doxygen::classLinkedMap->find(baseClassName));
+            baseClass = toClassDefMutable(Doxygen::classLinkedMap->find(baseClassName));
             //printf("*** classDDict->find(%s)=%p biName=%s templSpec=%s\n",
             //    baseClassName.data(),baseClass,biName.data(),templSpec.data());
             if (baseClass==0)
@@ -4544,41 +4579,51 @@ static bool findClassRelation(
                       createClassDef(root->fileName,root->startLine,root->startColumn,
                         baseClassName,
                         ClassDef::Class))));
-              if (isArtificial) baseClass->setArtificial(TRUE);
-              baseClass->setLanguage(root->lang);
-              si = baseClassName.findRev("::");
-              if (si!=-1) // class is nested
+              if (baseClass)
               {
-                Definition *sd = findScopeFromQualifiedName(Doxygen::globalScope,baseClassName.left(si),0,root->tagInfo());
-                if (sd==0 || sd==Doxygen::globalScope) // outer scope not found
+                if (isArtificial) baseClass->setArtificial(TRUE);
+                baseClass->setLanguage(root->lang);
+                si = baseClassName.findRev("::");
+                if (si!=-1) // class is nested
                 {
-                  baseClass->setArtificial(TRUE); // see bug678139
+                  Definition *sd = findScopeFromQualifiedName(Doxygen::globalScope,baseClassName.left(si),0,root->tagInfo());
+                  if (sd==0 || sd==Doxygen::globalScope) // outer scope not found
+                  {
+                    baseClass->setArtificial(TRUE); // see bug678139
+                  }
                 }
               }
             }
           }
-          if (biName.right(2)=="-p")
+          if (baseClass)
           {
-            biName="<"+biName.left(biName.length()-2)+">";
-          }
-          // add base class to this class
-          cd->insertBaseClass(baseClass,biName,bi->prot,bi->virt,templSpec);
-          // add this class as super class to the base class
-          baseClass->insertSubClass(cd,bi->prot,bi->virt,templSpec);
-          // the undocumented base was found in this file
-          baseClass->insertUsedFile(root->fileDef());
+            if (biName.right(2)=="-p")
+            {
+              biName="<"+biName.left(biName.length()-2)+">";
+            }
+            // add base class to this class
+            cd->insertBaseClass(baseClass,biName,bi->prot,bi->virt,templSpec);
+            // add this class as super class to the base class
+            baseClass->insertSubClass(cd,bi->prot,bi->virt,templSpec);
+            // the undocumented base was found in this file
+            baseClass->insertUsedFile(root->fileDef());
 
-          Definition *scope = buildScopeFromQualifiedName(baseClass->name(),root->lang,0);
-          if (scope!=baseClass)
-          {
-            baseClass->setOuterScope(scope);
-          }
+            Definition *scope = buildScopeFromQualifiedName(baseClass->name(),root->lang,0);
+            if (scope!=baseClass)
+            {
+              baseClass->setOuterScope(scope);
+            }
 
-          if (baseClassName.right(2)=="-p")
-          {
-            baseClass->setCompoundType(ClassDef::Protocol);
+            if (baseClassName.right(2)=="-p")
+            {
+              baseClass->setCompoundType(ClassDef::Protocol);
+            }
+            return TRUE;
           }
-          return TRUE;
+          else
+          {
+            Debug::print(Debug::Classes,0,"    Base class '%s' not created (alias?)\n",qPrint(biName));
+          }
         }
         else
         {
@@ -4853,9 +4898,7 @@ static void computeMemberReferences()
       ndm->computeAnchors();
     }
   }
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  GroupDef *gd;
-  for (gli.toFirst();(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
     gd->computeAnchors();
   }
@@ -4891,16 +4934,12 @@ static void addListReferences()
     }
   }
 
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  GroupDef *gd;
-  for (gli.toFirst();(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
     gd->addListReferences();
   }
 
-  PageSDict::Iterator pdi(*Doxygen::pageSDict);
-  PageDef *pd=0;
-  for (pdi.toFirst();(pd=pdi.current());++pdi)
+  for (const auto &pd : *Doxygen::pageLinkedMap)
   {
     QCString name = pd->getOutputFileBase();
     if (pd->getGroupDef())
@@ -4916,9 +4955,7 @@ static void addListReferences()
     }
   }
 
-  DirSDict::Iterator ddi(*Doxygen::directories);
-  DirDef *dd = 0;
-  for (ddi.toFirst();(dd=ddi.current());++ddi)
+  for (const auto &dd : *Doxygen::dirLinkedMap)
   {
     QCString name = dd->getOutputFileBase();
     //if (dd->getGroupDef())
@@ -7423,22 +7460,19 @@ static void addMembersToIndex()
   for (const auto &mn : *Doxygen::functionNameLinkedMap)
   {
     // for each member definition
-    for (const auto &imd : *mn)
+    for (const auto &md : *mn)
     {
-      MemberDefMutable *md = toMemberDefMutable(imd.get());
-      if (md)
+      if (md->getNamespaceDef())
       {
-        if (md->getNamespaceDef())
-        {
-          addNamespaceMemberNameToIndex(md);
-        }
-        else
-        {
-          addFileMemberNameToIndex(md);
-        }
+        addNamespaceMemberNameToIndex(md.get());
+      }
+      else
+      {
+        addFileMemberNameToIndex(md.get());
       }
     }
   }
+  sortMemberIndexLists();
 }
 
 //----------------------------------------------------------------------
@@ -7992,9 +8026,7 @@ static void sortMemberLists()
   }
 
   // sort group member lists
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  GroupDef *gd;
-  for (gli.toFirst();(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
     gd->sortMemberLists();
   }
@@ -8065,9 +8097,7 @@ static void countMembers()
     }
   }
 
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  GroupDef *gd;
-  for (gli.toFirst();(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
     gd->countMembers();
   }
@@ -8202,9 +8232,7 @@ static void addMembersToMemberGroup()
     }
   }
   // for each group
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  GroupDef *gd;
-  for (gli.toFirst();(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
     gd->addMembersToMemberGroup();
   }
@@ -8241,9 +8269,7 @@ static void distributeMemberGroupDocumentation()
     }
   }
   // for each group
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  GroupDef *gd;
-  for (gli.toFirst();(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
     gd->distributeMemberGroupDocumentation();
   }
@@ -8280,16 +8306,12 @@ static void findSectionsInDocumentation()
     }
   }
   // for each group
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  GroupDef *gd;
-  for (gli.toFirst();(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
     gd->findSectionsInDocumentation();
   }
   // for each page
-  PageSDict::Iterator pdi(*Doxygen::pageSDict);
-  PageDef *pd=0;
-  for (pdi.toFirst();(pd=pdi.current());++pdi)
+  for (const auto &pd : *Doxygen::pageLinkedMap)
   {
     pd->findSectionsInDocumentation();
   }
@@ -8548,9 +8570,8 @@ static void findDirDocumentation(const Entry *root)
     {
       normalizedName+='/';
     }
-    DirDef *dir,*matchingDir=0;
-    SDict<DirDef>::Iterator sdi(*Doxygen::directories);
-    for (sdi.toFirst();(dir=sdi.current());++sdi)
+    DirDef *matchingDir=0;
+    for (const auto &dir : *Doxygen::dirLinkedMap)
     {
       //printf("Dir: %s<->%s\n",dir->name().data(),normalizedName.data());
       if (dir->name().right(normalizedName.length())==normalizedName)
@@ -8566,7 +8587,7 @@ static void findDirDocumentation(const Entry *root)
         }
         else
         {
-          matchingDir=dir;
+          matchingDir=dir.get();
         }
       }
     }
@@ -8629,14 +8650,14 @@ static void findMainPage(Entry *root)
       QCString title=root->args.stripWhiteSpace();
       //QCString indexName=Config_getBool(GENERATE_TREEVIEW)?"main":"index";
       QCString indexName="index";
-      Doxygen::mainPage = createPageDef(root->docFile,root->docLine,
-                              indexName, root->brief+root->doc+root->inbodyDocs,title);
+      Doxygen::mainPage.reset(createPageDef(root->docFile,root->docLine,
+                              indexName, root->brief+root->doc+root->inbodyDocs,title));
       //setFileNameForSections(root->anchors,"index",Doxygen::mainPage);
       Doxygen::mainPage->setBriefDescription(root->brief,root->briefFile,root->briefLine);
       Doxygen::mainPage->setBodySegment(root->startLine,root->startLine,-1);
       Doxygen::mainPage->setFileName(indexName);
       Doxygen::mainPage->setLocalToc(root->localToc);
-      addPageToContext(Doxygen::mainPage,root);
+      addPageToContext(Doxygen::mainPage.get(),root);
 
       const SectionInfo *si = SectionManager::instance().find(Doxygen::mainPage->name());
       if (si)
@@ -8697,13 +8718,13 @@ static void computePageRelations(Entry *root)
      )
   {
     PageDef *pd = root->section==Entry::PAGEDOC_SEC ?
-                    Doxygen::pageSDict->find(root->name) :
-                    Doxygen::mainPage;
+                    Doxygen::pageLinkedMap->find(root->name) :
+                    Doxygen::mainPage.get();
     if (pd)
     {
       for (const BaseInfo &bi : root->extends)
       {
-        PageDef *subPd = Doxygen::pageSDict->find(bi.name);
+        PageDef *subPd = Doxygen::pageLinkedMap->find(bi.name);
         if (pd==subPd)
         {
          term("page defined at line %d of file %s with label %s is a direct "
@@ -8724,14 +8745,12 @@ static void computePageRelations(Entry *root)
 
 static void checkPageRelations()
 {
-  PageSDict::Iterator pdi(*Doxygen::pageSDict);
-  PageDef *pd=0;
-  for (pdi.toFirst();(pd=pdi.current());++pdi)
+  for (const auto &pd : *Doxygen::pageLinkedMap)
   {
     Definition *ppd = pd->getOuterScope();
     while (ppd)
     {
-      if (ppd==pd)
+      if (ppd==pd.get())
       {
         term("page defined at line %d of file %s with label %s is a subpage "
             "of itself! Please remove this cyclic dependency.\n",
@@ -8775,7 +8794,7 @@ static void resolveUserReferences()
       // if this section is in a page and the page is in a group, then we
       // have to adjust the link file name to point to the group.
       if (!si->fileName().isEmpty() &&
-          (pd=Doxygen::pageSDict->find(si->fileName())) &&
+          (pd=Doxygen::pageLinkedMap->find(si->fileName())) &&
           pd->getGroupDef())
       {
         si->setFileName(pd->getGroupDef()->getOutputFileBase());
@@ -8814,11 +8833,9 @@ static void resolveUserReferences()
 
 static void generatePageDocs()
 {
-  //printf("documentedPages=%d real=%d\n",documentedPages,Doxygen::pageSDict->count());
+  //printf("documentedPages=%d real=%d\n",documentedPages,Doxygen::pageLinkedMap->count());
   if (documentedPages==0) return;
-  PageSDict::Iterator pdi(*Doxygen::pageSDict);
-  PageDef *pd=0;
-  for (pdi.toFirst();(pd=pdi.current());++pdi)
+  for (const auto &pd : *Doxygen::pageLinkedMap)
   {
     if (!pd->getGroupDef() && !pd->isReference())
     {
@@ -8837,7 +8854,7 @@ static void buildExampleList(Entry *root)
 {
   if ((root->section==Entry::EXAMPLE_SEC || root->section==Entry::EXAMPLE_LINENO_SEC) && !root->name.isEmpty())
   {
-    if (Doxygen::exampleSDict->find(root->name))
+    if (Doxygen::exampleLinkedMap->find(root->name))
     {
       warn(root->fileName,root->startLine,
           "Example %s was already documented. Ignoring "
@@ -8847,15 +8864,16 @@ static void buildExampleList(Entry *root)
     }
     else
     {
-      PageDef *pd=createPageDef(root->fileName,root->startLine,
-          root->name,root->brief+root->doc+root->inbodyDocs,root->args);
+      PageDef *pd = Doxygen::exampleLinkedMap->add(root->name,
+             std::unique_ptr<PageDef>(
+               createPageDef(root->fileName,root->startLine,
+                 root->name,root->brief+root->doc+root->inbodyDocs,root->args)));
       pd->setBriefDescription(root->brief,root->briefFile,root->briefLine);
       pd->setFileName(convertNameToFile(pd->name()+"-example",FALSE,TRUE));
       pd->addSectionsToDefinition(root->anchors);
       pd->setLanguage(root->lang);
       pd->setShowLineNo(root->section==Entry::EXAMPLE_LINENO_SEC);
 
-      Doxygen::exampleSDict->inSort(root->name,pd);
       //we don't add example to groups
       //addExampleToGroups(root,pd);
     }
@@ -8887,9 +8905,7 @@ void printNavTree(Entry *root,int indent)
 static void generateExampleDocs()
 {
   g_outputList->disable(OutputGenerator::Man);
-  PageSDict::Iterator pdi(*Doxygen::exampleSDict);
-  PageDef *pd=0;
-  for (pdi.toFirst();(pd=pdi.current());++pdi)
+  for (const auto &pd : *Doxygen::exampleLinkedMap)
   {
     msg("Generating docs for example %s...\n",pd->name().data());
     auto intf = Doxygen::parserManager->getCodeParser(".c"); // TODO: do this on code type
@@ -8905,9 +8921,9 @@ static void generateExampleDocs()
     {
       lineNoOptStr="{lineno}";
     }
-    g_outputList->generateDoc(pd->docFile(),                            // file
+    g_outputList->generateDoc(pd->docFile(),                       // file
                          pd->docLine(),                            // startLine
-                         pd,                                       // context
+                         pd.get(),                                 // context
                          0,                                        // memberDef
                          pd->documentation()+"\n\n\\include"+lineNoOptStr+" "+pd->name(), // docs
                          TRUE,                                     // index words
@@ -8927,9 +8943,7 @@ static void generateExampleDocs()
 
 static void generateGroupDocs()
 {
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  GroupDef *gd;
-  for (gli.toFirst();(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
     if (!gd->isReference())
     {
@@ -10127,22 +10141,17 @@ void initDoxygen()
   initFileMemberIndices();
 
 #ifdef USE_LIBCLANG
-  Doxygen::clangUsrMap   = new QDict<Definition>(50177);
+  Doxygen::clangUsrMap   = new ClangUsrMap;
 #endif
   Doxygen::memberNameLinkedMap = new MemberNameLinkedMap;
   Doxygen::functionNameLinkedMap = new MemberNameLinkedMap;
-  Doxygen::groupSDict = new GroupSDict(17);
-  Doxygen::groupSDict->setAutoDelete(TRUE);
+  Doxygen::groupLinkedMap = new GroupLinkedMap;
   Doxygen::namespaceLinkedMap = new NamespaceLinkedMap;
   Doxygen::classLinkedMap = new ClassLinkedMap;
   Doxygen::hiddenClassLinkedMap = new ClassLinkedMap;
-  Doxygen::directories = new DirSDict(17);
-  Doxygen::directories->setAutoDelete(TRUE);
-  Doxygen::pageSDict = new PageSDict(1009);          // all doc pages
-  Doxygen::pageSDict->setAutoDelete(TRUE);
-  Doxygen::exampleSDict = new PageSDict(1009);       // all examples
-  Doxygen::exampleSDict->setAutoDelete(TRUE);
-  Doxygen::memGrpInfoDict.setAutoDelete(TRUE);
+  Doxygen::dirLinkedMap = new DirLinkedMap;
+  Doxygen::pageLinkedMap = new PageLinkedMap;          // all doc pages
+  Doxygen::exampleLinkedMap = new PageLinkedMap;       // all examples
   Doxygen::tagDestinationDict.setAutoDelete(TRUE);
   Doxygen::dirRelations.setAutoDelete(TRUE);
   Doxygen::indexList = new IndexList;
@@ -10184,9 +10193,9 @@ void cleanUpDoxygen()
   delete Doxygen::dotFileNameLinkedMap;
   delete Doxygen::mscFileNameLinkedMap;
   delete Doxygen::diaFileNameLinkedMap;
-  delete Doxygen::mainPage;
-  delete Doxygen::pageSDict;
-  delete Doxygen::exampleSDict;
+  Doxygen::mainPage.reset();
+  delete Doxygen::pageLinkedMap;
+  delete Doxygen::exampleLinkedMap;
   delete Doxygen::globalScope;
   delete Doxygen::parserManager;
   delete theTranslator;
@@ -10195,9 +10204,9 @@ void cleanUpDoxygen()
 
   delete Doxygen::memberNameLinkedMap;
   delete Doxygen::functionNameLinkedMap;
-  delete Doxygen::groupSDict;
+  delete Doxygen::groupLinkedMap;
   delete Doxygen::namespaceLinkedMap;
-  delete Doxygen::directories;
+  delete Doxygen::dirLinkedMap;
 
   DotManager::deleteInstance();
 }
@@ -10691,14 +10700,6 @@ static void stopDoxygen(int)
 {
   QDir thisDir;
   msg("Cleaning up...\n");
-  if (!Doxygen::entryDBFileName.isEmpty())
-  {
-    thisDir.remove(Doxygen::entryDBFileName);
-  }
-  if (!Doxygen::objDBFileName.isEmpty())
-  {
-    thisDir.remove(Doxygen::objDBFileName);
-  }
   if (!Doxygen::filterDBFileName.isEmpty())
   {
     thisDir.remove(Doxygen::filterDBFileName);
@@ -10757,16 +10758,12 @@ static void writeTagFile()
     }
   }
   // for each group
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  GroupDef *gd;
-  for (gli.toFirst();(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
     if (gd->isLinkableInProject()) gd->writeTagFile(tagFile);
   }
   // for each page
-  PageSDict::Iterator pdi(*Doxygen::pageSDict);
-  PageDef *pd=0;
-  for (pdi.toFirst();(pd=pdi.current());++pdi)
+  for (const auto &pd : *Doxygen::pageLinkedMap)
   {
     if (pd->isLinkableInProject()) pd->writeTagFile(tagFile);
   }
@@ -10801,14 +10798,6 @@ static void exitDoxygen()
   {
     QDir thisDir;
     msg("Exiting...\n");
-    if (!Doxygen::entryDBFileName.isEmpty())
-    {
-      thisDir.remove(Doxygen::entryDBFileName);
-    }
-    if (!Doxygen::objDBFileName.isEmpty())
-    {
-      thisDir.remove(Doxygen::objDBFileName);
-    }
     if (!Doxygen::filterDBFileName.isEmpty())
     {
       thisDir.remove(Doxygen::filterDBFileName);
@@ -11095,10 +11084,6 @@ void parseInput()
 #endif
 
   uint pid = Portable::pid();
-  Doxygen::objDBFileName.sprintf("doxygen_objdb_%d.tmp",pid);
-  Doxygen::objDBFileName.prepend(outputDirectory+"/");
-  Doxygen::entryDBFileName.sprintf("doxygen_entrydb_%d.tmp",pid);
-  Doxygen::entryDBFileName.prepend(outputDirectory+"/");
   Doxygen::filterDBFileName.sprintf("doxygen_filterdb_%d.tmp",pid);
   Doxygen::filterDBFileName.prepend(outputDirectory+"/");
 
@@ -11499,7 +11484,6 @@ void parseInput()
   g_s.end();
 
   QDir thisDir;
-  thisDir.remove(Doxygen::entryDBFileName);
 
   g_s.begin("Determining which enums are documented\n");
   findDocumentedEnumValues();
@@ -11608,10 +11592,12 @@ void parseInput()
 
   if (Config_getBool(SORT_GROUP_NAMES))
   {
-    Doxygen::groupSDict->sort();
-    GroupSDict::Iterator gli(*Doxygen::groupSDict);
-    GroupDef *gd;
-    for (gli.toFirst();(gd=gli.current());++gli)
+    std::sort(Doxygen::groupLinkedMap->begin(),
+              Doxygen::groupLinkedMap->end(),
+              [](const auto &g1,const auto &g2)
+              { return qstrcmp(g1->groupTitle(),g2->groupTitle())<0; });
+
+    for (const auto &gd : *Doxygen::groupLinkedMap)
     {
       gd->sortSubGroups();
     }
@@ -11990,7 +11976,6 @@ void generateOutput()
 
   finalizeSearchIndexer();
   QDir thisDir;
-  thisDir.remove(Doxygen::objDBFileName);
   thisDir.remove(Doxygen::filterDBFileName);
   finishWarnExit();
   Config::deinit();

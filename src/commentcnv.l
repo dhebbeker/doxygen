@@ -348,6 +348,16 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
                                        yyextra->commentStack.push(new CommentCtx(yyextra->lineNr));
 				     }
   				   }
+<Scan>"--"[^!][^\n]*		   {
+                                     if (yyextra->lang!=SrcLangExt_VHDL)
+				     {
+				       REJECT;
+				     }
+				     else
+				     {
+                                       copyToOutput(yyscanner,yytext,(int)yyleng); 
+				     }
+  				   }
 <Scan>"--!"		           {
                                      if (yyextra->lang!=SrcLangExt_VHDL)
 				     {
@@ -541,7 +551,7 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
                                      copyToOutput(yyscanner,yytext,(int)yyleng); 
                                    }
 <SkipString>\\.                    { /* escaped character in string */
-                                     if (yyextra->lang==SrcLangExt_Fortran)
+                                     if (yyextra->lang==SrcLangExt_Fortran || yyextra->lang==SrcLangExt_VHDL)
                                      {
                                        unput(yytext[1]);
                                        copyToOutput(yyscanner,yytext,1);
@@ -562,7 +572,7 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
                                      copyToOutput(yyscanner,yytext,(int)yyleng); 
                                    }
 <SkipChar>\\.		           { /* escaped character */
-                                     if (yyextra->lang==SrcLangExt_Fortran)
+                                     if (yyextra->lang==SrcLangExt_Fortran || yyextra->lang==SrcLangExt_VHDL)
                                      {
                                        unput(yytext[1]);
                                        copyToOutput(yyscanner,yytext,1);

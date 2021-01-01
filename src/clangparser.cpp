@@ -163,6 +163,7 @@ void ClangTUParser::parse()
   //printf("ClangTUParser::ClangTUParser(fileName=%s,#filesInSameTU=%d)\n",
   //    qPrint(fileName),(int)p->filesInSameTU.size());
   bool clangAssistedParsing = Config_getBool(CLANG_ASSISTED_PARSING);
+  bool clangIncludeInputPaths = Config_getBool(CLANG_ADD_INC_PATHS);
   bool filterSourceFiles = Config_getBool(FILTER_SOURCE_FILES);
   const StringVector &includePath = Config_getList(INCLUDE_PATH);
   const StringVector &clangOptions = Config_getList(CLANG_OPTIONS);
@@ -211,11 +212,14 @@ void ClangTUParser::parse()
   else
   {
     // add include paths for input files
-    for (const std::string &path : Doxygen::inputPaths)
+    if (clangIncludeInputPaths)
     {
-      QCString inc = QCString("-I")+path.data();
-      argv[argc++]=qstrdup(inc.data());
-      //printf("argv[%d]=%s\n",argc,argv[argc]);
+      for (const std::string &path : Doxygen::inputPaths)
+      {
+        QCString inc = QCString("-I")+path.data();
+        argv[argc++]=qstrdup(inc.data());
+        //printf("argv[%d]=%s\n",argc,argv[argc]);
+      }
     }
     // add external include paths
     for (size_t i=0;i<includePath.size();i++)
@@ -346,7 +350,7 @@ ClangTUParser::~ClangTUParser()
   p->tu        = 0;
 }
 
-void ClangTUParser::switchToFile(FileDef *fd)
+void ClangTUParser::switchToFile(const FileDef *fd)
 {
   //printf("ClangTUParser::switchToFile(%s) this=%p\n",qPrint(fd->absFilePath()),this);
   if (p->tu)
@@ -486,7 +490,7 @@ QCString ClangTUParser::lookup(uint line,const char *symbol)
 }
 
 
-void ClangTUParser::writeLineNumber(CodeOutputInterface &ol,FileDef *fd,uint line)
+void ClangTUParser::writeLineNumber(CodeOutputInterface &ol,const FileDef *fd,uint line)
 {
   Definition *d = fd ? fd->getSourceDefinition(line) : 0;
   if (d && d->isLinkable())
@@ -532,7 +536,7 @@ void ClangTUParser::writeLineNumber(CodeOutputInterface &ol,FileDef *fd,uint lin
   //printf("writeLineNumber(%d) g_searchForBody=%d\n",line,g_searchForBody);
 }
 
-void ClangTUParser::codifyLines(CodeOutputInterface &ol,FileDef *fd,const char *text,
+void ClangTUParser::codifyLines(CodeOutputInterface &ol,const FileDef *fd,const char *text,
                         uint &line,uint &column,const char *fontClass)
 {
   if (fontClass) ol.startFontClass(fontClass);
@@ -569,8 +573,8 @@ void ClangTUParser::codifyLines(CodeOutputInterface &ol,FileDef *fd,const char *
 }
 
 void ClangTUParser::writeMultiLineCodeLink(CodeOutputInterface &ol,
-                  FileDef *fd,uint &line,uint &column,
-                  Definition *d,
+                  const FileDef *fd,uint &line,uint &column,
+                  const Definition *d,
                   const char *text)
 {
   static bool sourceTooltips = Config_getBool(SOURCE_TOOLTIPS);
@@ -609,7 +613,7 @@ void ClangTUParser::writeMultiLineCodeLink(CodeOutputInterface &ol,
   }
 }
 
-void ClangTUParser::linkInclude(CodeOutputInterface &ol,FileDef *fd,
+void ClangTUParser::linkInclude(CodeOutputInterface &ol,const FileDef *fd,
     uint &line,uint &column,const char *text)
 {
   QCString incName = text;
@@ -643,7 +647,7 @@ void ClangTUParser::linkInclude(CodeOutputInterface &ol,FileDef *fd,
   }
 }
 
-void ClangTUParser::linkMacro(CodeOutputInterface &ol,FileDef *fd,
+void ClangTUParser::linkMacro(CodeOutputInterface &ol,const FileDef *fd,
     uint &line,uint &column,const char *text)
 {
   MemberName *mn=Doxygen::functionNameLinkedMap->find(text);
@@ -662,7 +666,7 @@ void ClangTUParser::linkMacro(CodeOutputInterface &ol,FileDef *fd,
 }
 
 
-void ClangTUParser::linkIdentifier(CodeOutputInterface &ol,FileDef *fd,
+void ClangTUParser::linkIdentifier(CodeOutputInterface &ol,const FileDef *fd,
     uint &line,uint &column,const char *text,int tokenIndex)
 {
   CXCursor c = p->cursors[tokenIndex];
@@ -679,7 +683,12 @@ void ClangTUParser::linkIdentifier(CodeOutputInterface &ol,FileDef *fd,
   CXString usr = clang_getCursorUSR(c);
   const char *usrStr = clang_getCString(usr);
 
-  Definition *d = usrStr ? Doxygen::clangUsrMap->find(usrStr) : 0;
+  const Definition *d = 0;
+  auto kv = Doxygen::clangUsrMap->find(usrStr);
+  if (kv!=Doxygen::clangUsrMap->end())
+  {
+    d = kv->second;
+  }
   //CXCursorKind kind = clang_getCursorKind(c);
   //if (d==0)
   //{
@@ -739,7 +748,7 @@ void ClangTUParser::detectFunctionBody(const char *s)
   }
 }
 
-void ClangTUParser::writeSources(CodeOutputInterface &ol,FileDef *fd)
+void ClangTUParser::writeSources(CodeOutputInterface &ol,const FileDef *fd)
 {
   // (re)set global parser state
   p->currentMemberDef=0;
@@ -895,7 +904,7 @@ std::unique_ptr<ClangTUParser> ClangParser::createTUParser(const FileDef *fd) co
 //--------------------------------------------------------------------------
 #else // use stubbed functionality in case libclang support is disabled.
 
-void ClangTUParser::switchToFile(FileDef *fd)
+void ClangTUParser::switchToFile(const FileDef *fd)
 {
 }
 

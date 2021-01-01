@@ -83,17 +83,6 @@
 
 //------------------------------------------------------------------------
 
-// selects one of the name to sub-dir mapping algorithms that is used
-// to select a sub directory when CREATE_SUBDIRS is set to YES.
-
-#define ALGO_COUNT 1
-#define ALGO_CRC16 2
-#define ALGO_MD5   3
-
-//#define MAP_ALGO ALGO_COUNT
-//#define MAP_ALGO ALGO_CRC16
-#define MAP_ALGO ALGO_MD5
-
 #define REL_PATH_TO_ROOT "../../"
 
 static const char *hex = "0123456789ABCDEF";
@@ -3037,7 +3026,7 @@ bool resolveRef(/* in */  const char *scName,
     //    md->name().data(),md,md->anchor().data(),md->isLinkable(),(*resContext)->name().data());
     return TRUE;
   }
-  else if (inSeeBlock && !nameStr.isEmpty() && (gd=Doxygen::groupSDict->find(nameStr)))
+  else if (inSeeBlock && !nameStr.isEmpty() && (gd=Doxygen::groupLinkedMap->find(nameStr)))
   { // group link
     *resContext=gd;
     return TRUE;
@@ -3188,7 +3177,7 @@ bool resolveLink(/* in */ const char *scName,
   {
     return FALSE;
   }
-  else if ((pd=Doxygen::pageSDict->find(linkRef))) // link to a page
+  else if ((pd=Doxygen::pageLinkedMap->find(linkRef))) // link to a page
   {
     gd = pd->getGroupDef();
     if (gd)
@@ -3209,12 +3198,12 @@ bool resolveLink(/* in */ const char *scName,
     resAnchor = si->label();
     return TRUE;
   }
-  else if ((pd=Doxygen::exampleSDict->find(linkRef))) // link to an example
+  else if ((pd=Doxygen::exampleLinkedMap->find(linkRef))) // link to an example
   {
     *resContext=pd;
     return TRUE;
   }
-  else if ((gd=Doxygen::groupSDict->find(linkRef))) // link to a group
+  else if ((gd=Doxygen::groupLinkedMap->find(linkRef))) // link to a group
   {
     *resContext=gd;
     return TRUE;
@@ -3254,7 +3243,7 @@ bool resolveLink(/* in */ const char *scName,
     *resContext=nd;
     return TRUE;
   }
-  else if ((dir=Doxygen::directories->find(QFileInfo(linkRef).absFilePath().utf8()+"/"))
+  else if ((dir=Doxygen::dirLinkedMap->find(QFileInfo(linkRef).absFilePath().utf8()+"/"))
       && dir->isLinkable()) // TODO: make this location independent like filedefs
   {
     *resContext=dir;
@@ -3834,40 +3823,12 @@ QCString convertNameToFile(const char *name,bool allowDots,bool allowUnderscore)
   {
     int l1Dir=0,l2Dir=0;
 
-#if MAP_ALGO==ALGO_COUNT
-    // old algorithm, has the problem that after regeneration the
-    // output can be located in a different dir.
-    if (Doxygen::htmlDirMap==0)
-    {
-      Doxygen::htmlDirMap=new QDict<int>(100003);
-      Doxygen::htmlDirMap->setAutoDelete(TRUE);
-    }
-    static int curDirNum=0;
-    int *dirNum = Doxygen::htmlDirMap->find(result);
-    if (dirNum==0) // new name
-    {
-      Doxygen::htmlDirMap->insert(result,new int(curDirNum));
-      l1Dir = (curDirNum)&0xf;    // bits 0-3
-      l2Dir = (curDirNum>>4)&0xff; // bits 4-11
-      curDirNum++;
-    }
-    else // existing name
-    {
-      l1Dir = (*dirNum)&0xf;       // bits 0-3
-      l2Dir = ((*dirNum)>>4)&0xff; // bits 4-11
-    }
-#elif MAP_ALGO==ALGO_CRC16
-    // second algorithm based on CRC-16 checksum
-    int dirNum = qChecksum(result,result.length());
-    l1Dir = dirNum&0xf;
-    l2Dir = (dirNum>>4)&0xff;
-#elif MAP_ALGO==ALGO_MD5
-    // third algorithm based on MD5 hash
+    // compute md5 hash to determine sub directory to use
     uchar md5_sig[16];
     MD5Buffer((const unsigned char *)result.data(),result.length(),md5_sig);
     l1Dir = md5_sig[14]&0xf;
     l2Dir = md5_sig[15];
-#endif
+
     result.prepend(QCString().sprintf("d%x/d%02x/",l1Dir,l2Dir));
   }
   //printf("*** convertNameToFile(%s)->%s\n",name,result.data());
@@ -4412,7 +4373,7 @@ QCString getOverloadDocs()
 }
 
 void addMembersToMemberGroup(MemberList *ml,
-    MemberGroupSDict **ppMemberGroupSDict,
+    MemberGroupList *pMemberGroups,
     const Definition *context)
 {
   ASSERT(context!=0);
@@ -4435,31 +4396,34 @@ void addMembersToMemberGroup(MemberList *ml,
           int groupId=fmd->getMemberGroupId();
           if (groupId!=-1)
           {
-            MemberGroupInfo *info = Doxygen::memGrpInfoDict[groupId];
-            //QCString *pGrpHeader = Doxygen::memberHeaderDict[groupId];
-            //QCString *pDocs      = Doxygen::memberDocDict[groupId];
-            if (info)
+            auto it = Doxygen::memberGroupInfoMap.find(groupId);
+            if (it!=Doxygen::memberGroupInfoMap.end())
             {
-              if (*ppMemberGroupSDict==0)
+              auto &info = it->second;
+              auto mg_it = std::find_if(pMemberGroups->begin(),
+                                        pMemberGroups->end(),
+                                        [&groupId](const auto &g)
+                                        { return g->groupId()==groupId; }
+                                       );
+              MemberGroup *mg_ptr = 0;
+              if (mg_it==pMemberGroups->end())
               {
-                *ppMemberGroupSDict = new MemberGroupSDict;
-                (*ppMemberGroupSDict)->setAutoDelete(TRUE);
+                auto mg = std::make_unique<MemberGroup>(
+                          context,
+                          groupId,
+                          info->header,
+                          info->doc,
+                          info->docFile,
+                          info->docLine);
+                mg_ptr = mg.get();
+                pMemberGroups->push_back(std::move(mg));
               }
-              MemberGroup *mg = (*ppMemberGroupSDict)->find(groupId);
-              if (mg==0)
+              else
               {
-                mg = new MemberGroup(
-                    context,
-                    groupId,
-                    info->header,
-                    info->doc,
-                    info->docFile,
-                    info->docLine
-                    );
-                (*ppMemberGroupSDict)->append(groupId,mg);
+                mg_ptr = (*mg_it).get();
               }
-              mg->insertMember(fmd); // insert in member group
-              fmd->setMemberGroup(mg);
+              mg_ptr->insertMember(fmd); // insert in member group
+              fmd->setMemberGroup(mg_ptr);
             }
           }
         }
@@ -4468,33 +4432,36 @@ void addMembersToMemberGroup(MemberList *ml,
     int groupId=md->getMemberGroupId();
     if (groupId!=-1)
     {
-      MemberGroupInfo *info = Doxygen::memGrpInfoDict[groupId];
-      //QCString *pGrpHeader = Doxygen::memberHeaderDict[groupId];
-      //QCString *pDocs      = Doxygen::memberDocDict[groupId];
-      if (info)
+      auto it = Doxygen::memberGroupInfoMap.find(groupId);
+      if (it!=Doxygen::memberGroupInfoMap.end())
       {
-        if (*ppMemberGroupSDict==0)
+        auto &info = it->second;
+        auto mg_it = std::find_if(pMemberGroups->begin(),
+                                  pMemberGroups->end(),
+                                  [&groupId](const auto &g)
+                                  { return g->groupId()==groupId; }
+                                 );
+        MemberGroup *mg_ptr = 0;
+        if (mg_it==pMemberGroups->end())
         {
-          *ppMemberGroupSDict = new MemberGroupSDict;
-          (*ppMemberGroupSDict)->setAutoDelete(TRUE);
+          auto mg = std::make_unique<MemberGroup>(
+                    context,
+                    groupId,
+                    info->header,
+                    info->doc,
+                    info->docFile,
+                    info->docLine);
+          mg_ptr = mg.get();
+          pMemberGroups->push_back(std::move(mg));
         }
-        MemberGroup *mg = (*ppMemberGroupSDict)->find(groupId);
-        if (mg==0)
+        else
         {
-          mg = new MemberGroup(
-              context,
-              groupId,
-              info->header,
-              info->doc,
-              info->docFile,
-              info->docLine
-              );
-          (*ppMemberGroupSDict)->append(groupId,mg);
+          mg_ptr = (*mg_it).get();
         }
         md = ml->take(index); // remove from member list
-        mg->insertMember(md->resolveAlias()); // insert in member group
-        mg->setRefItems(info->m_sli);
-        md->setMemberGroup(mg);
+        mg_ptr->insertMember(md->resolveAlias()); // insert in member group
+        mg_ptr->setRefItems(info->m_sli);
+        md->setMemberGroup(mg_ptr);
         continue;
       }
     }
@@ -4920,7 +4887,7 @@ PageDef *addRelatedPage(const char *name,const QCString &ptitle,
   PageDef *pd=0;
   //printf("addRelatedPage(name=%s gd=%p)\n",name,gd);
   QCString title=ptitle.stripWhiteSpace();
-  if ((pd=Doxygen::pageSDict->find(name)) && !tagInfo)
+  if ((pd=Doxygen::pageLinkedMap->find(name)) && !tagInfo)
   {
     if (!xref && !title.isEmpty() && pd->title()!=title)
     {
@@ -4941,7 +4908,10 @@ PageDef *addRelatedPage(const char *name,const QCString &ptitle,
     else if (baseName.right(Doxygen::htmlFileExtension.length())==Doxygen::htmlFileExtension)
       baseName=baseName.left(baseName.length()-Doxygen::htmlFileExtension.length());
 
-    pd=createPageDef(fileName,docLine,baseName,doc,title);
+    //printf("Appending page '%s'\n",baseName.data());
+    pd = Doxygen::pageLinkedMap->add(baseName,
+        std::unique_ptr<PageDef>(
+           createPageDef(fileName,docLine,baseName,doc,title)));
     pd->setBodySegment(startLine,startLine,-1);
 
     pd->setRefItems(sli);
@@ -4953,8 +4923,6 @@ PageDef *addRelatedPage(const char *name,const QCString &ptitle,
       pd->setFileName(tagInfo->fileName);
     }
 
-    //printf("Appending page '%s'\n",baseName.data());
-    Doxygen::pageSDict->append(baseName,pd);
 
     if (gd) gd->addPage(pd);
 
@@ -5027,8 +4995,7 @@ void addRefItem(const RefItemVector &sli,
 
 bool recursivelyAddGroupListToTitle(OutputList &ol,const Definition *d,bool root)
 {
-  GroupList *groups = d->partOfGroups();
-  if (groups) // write list of group to which this definition belongs
+  if (!d->partOfGroups().empty()) // write list of group to which this definition belongs
   {
     if (root)
     {
@@ -5036,10 +5003,8 @@ bool recursivelyAddGroupListToTitle(OutputList &ol,const Definition *d,bool root
       ol.disableAllBut(OutputGenerator::Html);
       ol.writeString("<div class=\"ingroups\">");
     }
-    GroupListIterator gli(*groups);
-    GroupDef *gd;
     bool first=true;
-    for (gli.toFirst();(gd=gli.current());++gli)
+    for (const auto &gd : d->partOfGroups())
     {
       if (!first) { ol.writeString(" &#124; "); } else first=false;
       if (recursivelyAddGroupListToTitle(ol, gd, FALSE))

@@ -119,7 +119,7 @@ static UmlDetailLevel getUmlDetailLevelFromConfig()
     result=UmlDetailLevel::None;
   }
   return result;
-} 
+}
 
 static QCString escapeTooltip(const QCString &tooltip)
 {
@@ -197,17 +197,11 @@ static void writeBoxMemberList(FTextStream &t,
       }
     }
     // write member groups within the memberlist
-    MemberGroupList *mgl = ml->getMemberGroupList();
-    if (mgl)
+    for (const auto &mg : ml->getMemberGroupList())
     {
-      MemberGroupListIterator mgli(*mgl);
-      MemberGroup *mg;
-      for (mgli.toFirst();(mg=mgli.current());++mgli)
+      if (mg->members())
       {
-        if (mg->members())
-        {
-          writeBoxMemberList(t,prot,mg->members(),scope,isStatic,skipNames);
-        }
+        writeBoxMemberList(t,prot,mg->members(),scope,isStatic,skipNames);
       }
     }
   }
@@ -483,12 +477,9 @@ void DotNode::writeBox(FTextStream &t,
         writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priStaticMethods),m_classDef,TRUE);
         writeBoxMemberList(t,'-',m_classDef->getMemberList(MemberListType_priSlots),m_classDef);
       }
-      if (m_classDef->getLanguage()!=SrcLangExt_Fortran &&
-        m_classDef->getMemberGroupSDict())
+      if (m_classDef->getLanguage()!=SrcLangExt_Fortran)
       {
-        MemberGroupSDict::Iterator mgdi(*m_classDef->getMemberGroupSDict());
-        MemberGroup *mg;
-        for (mgdi.toFirst();(mg=mgdi.current());++mgdi)
+        for (const auto &mg : m_classDef->getMemberGroups())
         {
           if (mg->members())
           {

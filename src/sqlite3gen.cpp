@@ -1279,13 +1279,9 @@ static void writeInnerClasses(const ClassLinkedRefMap &cl, struct Refid outer_re
   }
 }
 
-static void writeInnerPages(const PageSDict *pl, struct Refid outer_refid)
+static void writeInnerPages(const PageLinkedRefMap &pl, struct Refid outer_refid)
 {
-  if (!pl) return;
-
-  PageSDict::Iterator pli(*pl);
-  const PageDef *pd;
-  for (pli.toFirst();(pd=pli.current());++pli)
+  for (const auto &pd : pl)
   {
     struct Refid inner_refid = insertRefid(
       pd->getGroupDef() ? pd->getOutputFileBase()+"_"+pd->name() : pd->getOutputFileBase()
@@ -1294,24 +1290,18 @@ static void writeInnerPages(const PageSDict *pl, struct Refid outer_refid)
     bindIntParameter(contains_insert,":inner_rowid", inner_refid.rowid);
     bindIntParameter(contains_insert,":outer_rowid", outer_refid.rowid);
     step(contains_insert);
-
   }
 }
 
-static void writeInnerGroups(const GroupList *gl, struct Refid outer_refid)
+static void writeInnerGroups(const GroupList &gl, struct Refid outer_refid)
 {
-  if (gl)
+  for (const auto &sgd : gl)
   {
-    GroupListIterator gli(*gl);
-    const GroupDef *sgd;
-    for (gli.toFirst();(sgd=gli.current());++gli)
-    {
-      struct Refid inner_refid = insertRefid(sgd->getOutputFileBase());
+    struct Refid inner_refid = insertRefid(sgd->getOutputFileBase());
 
-      bindIntParameter(contains_insert,":inner_rowid", inner_refid.rowid);
-      bindIntParameter(contains_insert,":outer_rowid", outer_refid.rowid);
-      step(contains_insert);
-    }
+    bindIntParameter(contains_insert,":inner_rowid", inner_refid.rowid);
+    bindIntParameter(contains_insert,":outer_rowid", outer_refid.rowid);
+    step(contains_insert);
   }
 }
 
@@ -2015,15 +2005,10 @@ static void generateSqlite3ForClass(const ClassDef *cd)
   writeTemplateList(cd);
 
   // + member groups
-  if (cd->getMemberGroupSDict())
+  for (const auto &mg : cd->getMemberGroups())
   {
-    MemberGroupSDict::Iterator mgli(*cd->getMemberGroupSDict());
-    MemberGroup *mg;
-    for (;(mg=mgli.current());++mgli)
-    {
-      generateSqlite3Section(cd,mg->members(),refid,"user-defined",mg->header(),
-          mg->documentation());
-    }
+    generateSqlite3Section(cd,mg->members(),refid,"user-defined",mg->header(),
+        mg->documentation());
   }
 
   // this is just a list of *local* members
@@ -2079,15 +2064,10 @@ static void generateSqlite3ForNamespace(const NamespaceDef *nd)
   writeInnerNamespaces(nd->getNamespaces(),refid);
 
   // + member groups
-  if (nd->getMemberGroupSDict())
+  for (const auto &mg : nd->getMemberGroups())
   {
-    MemberGroupSDict::Iterator mgli(*nd->getMemberGroupSDict());
-    MemberGroup *mg;
-    for (;(mg=mgli.current());++mgli)
-    {
-      generateSqlite3Section(nd,mg->members(),refid,"user-defined",mg->header(),
-          mg->documentation());
-    }
+    generateSqlite3Section(nd,mg->members(),refid,"user-defined",mg->header(),
+        mg->documentation());
   }
 
   // + normal members
@@ -2241,15 +2221,10 @@ static void generateSqlite3ForFile(const FileDef *fd)
   writeInnerNamespaces(fd->getNamespaces(),refid);
 
   // + member groups
-  if (fd->getMemberGroupSDict())
+  for (const auto &mg : fd->getMemberGroups())
   {
-    MemberGroupSDict::Iterator mgli(*fd->getMemberGroupSDict());
-    MemberGroup *mg;
-    for (;(mg=mgli.current());++mgli)
-    {
-      generateSqlite3Section(fd,mg->members(),refid,"user-defined",mg->header(),
+    generateSqlite3Section(fd,mg->members(),refid,"user-defined",mg->header(),
           mg->documentation());
-    }
   }
 
   // + normal members
@@ -2315,15 +2290,10 @@ static void generateSqlite3ForGroup(const GroupDef *gd)
   writeInnerGroups(gd->getSubGroups(),refid);
 
   // + member groups
-  if (gd->getMemberGroupSDict())
+  for (const auto &mg : gd->getMemberGroups())
   {
-    MemberGroupSDict::Iterator mgli(*gd->getMemberGroupSDict());
-    MemberGroup *mg;
-    for (;(mg=mgli.current());++mgli)
-    {
-      generateSqlite3Section(gd,mg->members(),refid,"user-defined",mg->header(),
-          mg->documentation());
-    }
+    generateSqlite3Section(gd,mg->members(),refid,"user-defined",mg->header(),
+        mg->documentation());
   }
 
   // + members
@@ -2413,7 +2383,7 @@ static void generateSqlite3ForPage(const PageDef *pd,bool isExample)
   bindTextParameter(compounddef_insert,":name",pd->name());
 
   QCString title;
-  if (pd==Doxygen::mainPage) // main page is special
+  if (pd==Doxygen::mainPage.get()) // main page is special
   {
     if (mainPageHasTitle())
     {
@@ -2564,52 +2534,38 @@ void generateSqlite3()
   }
 
   // + groups
-  GroupSDict::Iterator gli(*Doxygen::groupSDict);
-  const GroupDef *gd;
-  for (;(gd=gli.current());++gli)
+  for (const auto &gd : *Doxygen::groupLinkedMap)
   {
     msg("Generating Sqlite3 output for group %s\n",gd->name().data());
-    generateSqlite3ForGroup(gd);
+    generateSqlite3ForGroup(gd.get());
   }
 
   // + page
+  for (const auto &pd : *Doxygen::pageLinkedMap)
   {
-    PageSDict::Iterator pdi(*Doxygen::pageSDict);
-    const PageDef *pd=0;
-    for (pdi.toFirst();(pd=pdi.current());++pdi)
-    {
-      msg("Generating Sqlite3 output for page %s\n",pd->name().data());
-      generateSqlite3ForPage(pd,FALSE);
-    }
+    msg("Generating Sqlite3 output for page %s\n",pd->name().data());
+    generateSqlite3ForPage(pd.get(),FALSE);
   }
 
   // + dirs
+  for (const auto &dd : *Doxygen::dirLinkedMap)
   {
-    const DirDef *dir;
-    DirSDict::Iterator sdi(*Doxygen::directories);
-    for (sdi.toFirst();(dir=sdi.current());++sdi)
-    {
-      msg("Generating Sqlite3 output for dir %s\n",dir->name().data());
-      generateSqlite3ForDir(dir);
-    }
+    msg("Generating Sqlite3 output for dir %s\n",dd->name().data());
+    generateSqlite3ForDir(dd.get());
   }
 
   // + examples
+  for (const auto &pd : *Doxygen::exampleLinkedMap)
   {
-    PageSDict::Iterator pdi(*Doxygen::exampleSDict);
-    const PageDef *pd=0;
-    for (pdi.toFirst();(pd=pdi.current());++pdi)
-    {
-      msg("Generating Sqlite3 output for example %s\n",pd->name().data());
-      generateSqlite3ForPage(pd,TRUE);
-    }
+    msg("Generating Sqlite3 output for example %s\n",pd->name().data());
+    generateSqlite3ForPage(pd.get(),TRUE);
   }
 
   // + main page
   if (Doxygen::mainPage)
   {
     msg("Generating Sqlite3 output for the main page\n");
-    generateSqlite3ForPage(Doxygen::mainPage,FALSE);
+    generateSqlite3ForPage(Doxygen::mainPage.get(),FALSE);
   }
 
   // TODO: copied from initializeSchema; not certain if we should say/do more
