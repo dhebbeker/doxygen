@@ -1158,7 +1158,7 @@ bool UsedDir::isParentOfTheDependee() const
   return !m_isOriginalDependee;
 }
 
-UsedDir::GeneratedKey UsedDir::generateKey(const DirDef* const directory, const bool isDependencyInherited, const bool isParentOfTheDependee)
+QCString UsedDir::generateKey(const DirDef* const directory, const bool isDependencyInherited, const bool isParentOfTheDependee)
 {
   return directory->getOutputFileBase().append(std::to_string(isDependencyInherited).c_str()).append(std::to_string(isParentOfTheDependee).c_str());
 }

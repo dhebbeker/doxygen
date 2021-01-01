@@ -38,9 +38,6 @@ class FilePairDict;
 class DirDef;
 class DirList;
 
-/// same container type as DirList but containing `const` objects
-typedef MakeConstValueTypeContainer<DirList> ConstDirList;
-
 bool compareDirDefs(const DirDef *item1, const DirDef *item2);
 
 // ------------------
@@ -74,8 +71,7 @@ class FilePairDict : public SDict<FilePair>
 class UsedDir
 {
   public:
-    using GeneratedKey = decltype(std::declval<DirDef>().getOutputFileBase());
-    static GeneratedKey generateKey(const DirDef* const directory, const bool isDependencyInherited, const bool isParentOfTheDependee);
+    static QCString generateKey(const DirDef* const directory, const bool isDependencyInherited, const bool isParentOfTheDependee);
     UsedDir(const DirDef *dir,const bool isDependencyInherited, const bool isParentOfTheDependee);
     virtual ~UsedDir();
     void addFileDep(FileDef *srcFd,FileDef *dstFd);

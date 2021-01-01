@@ -145,13 +145,13 @@ static QCString getDirectoryBackgroundColorCode(const std::size_t depthIndex)
  * @param nextLevelSuccessors list of successors which are recursively added to the list
  * @return list of all successors
  */
-static ConstDirList getSuccessors(const ConstDirList &nextLevelSuccessors)
+static DirList getSuccessors(const DirList &nextLevelSuccessors)
 {
-  ConstDirList successors;
+  DirList successors;
   for (const auto successor : nextLevelSuccessors)
   {
     successors.push_back(successor);
-    successors = concat(successors, getSuccessors(makeConstCopy(successor->subDirs())));
+    successors = concatLists(successors, getSuccessors(successor->subDirs()));
   }
   return successors;
 }
@@ -166,16 +166,12 @@ static ConstDirList getSuccessors(const ConstDirList &nextLevelSuccessors)
  * @param dependents (dependers which depend on the dependees)
  * @return
  */
-static auto getDependees(const ConstDirList &dependents, const DirectoryLevel minLevel)
+static auto getDependees(const DirList &dependents, const DirectoryLevel minLevel)
 {
-  ConstDirList dependees;
+  DirList dependees;
   for (const auto dependent : dependents)
   {
-    QDictIterator<UsedDir> usedDirectoriesIterator(*dependent->usedDirs());
-    const UsedDir *usedDirectory;
-    // for each used directory
-    for (usedDirectoriesIterator.toFirst(); (usedDirectory = usedDirectoriesIterator.current());
-        ++usedDirectoriesIterator)
+    for(const auto& usedDirectory : dependent->usedDirs())
     {
       if (usedDirectory->dir()->level() >= minLevel)
       {
@@ -196,8 +192,8 @@ static auto getDependees(const ConstDirList &dependents, const DirectoryLevel mi
  4. if x has no parent; put x to ancestor list and return; else
  5. Ancestor(p)
  */
-static void getTreeRootsLimited(const DirDef &basedOnDirectory, const ConstDirList &originalDirectoryTree,
-    ConstDirList &ancestors, PropertyMap &directoryProperties, const DirectoryLevel startLevel)
+static void getTreeRootsLimited(const DirDef &basedOnDirectory, const DirList &originalDirectoryTree,
+    DirList &ancestors, PropertyMap &directoryProperties, const DirectoryLevel startLevel)
 {
   if (std::find(ancestors.begin(), ancestors.end(), &basedOnDirectory) == ancestors.end())
   {
@@ -227,11 +223,11 @@ static void getTreeRootsLimited(const DirDef &basedOnDirectory, const ConstDirLi
   }
 }
 
-static ConstDirList getTreeRootsLimited(const ConstDirList &basedOnDirectories,
-    const ConstDirList &originalDirectoryTree, PropertyMap &directoryProperties,
+static DirList getTreeRootsLimited(const DirList &basedOnDirectories,
+    const DirList &originalDirectoryTree, PropertyMap &directoryProperties,
     const DirectoryLevel startLevel)
 {
-  ConstDirList ancestorList;
+  DirList ancestorList;
   for (const auto basedOnDirectory : basedOnDirectories)
   {
     getTreeRootsLimited(
@@ -308,7 +304,7 @@ static bool isAtLowerVisibilityBorder(const DirDef &directory, const DirectoryLe
  - else
    1. draw_directory(properties)
  */
-static void drawTrees(FTextStream &outputStream, const ConstDirList &listOfTreeRoots,
+static void drawTrees(FTextStream &outputStream, const DirList &listOfTreeRoots,
     PropertyMap &directoryProperties, const DirectoryLevel startLevel)
 {
   for (const auto directory : listOfTreeRoots)
@@ -346,7 +342,7 @@ static void drawTrees(FTextStream &outputStream, const ConstDirList &listOfTreeR
                 "label=\"" << directory->shortName() << "\""
                 "];\n";
           }
-          drawTrees(outputStream, makeConstCopy(directory->subDirs()), directoryProperties, startLevel);
+          drawTrees(outputStream, directory->subDirs(), directoryProperties, startLevel);
           {  //close cluster
             outputStream << "  }\n";
           }
@@ -367,7 +363,7 @@ static void drawTrees(FTextStream &outputStream, const ConstDirList &listOfTreeR
  * @param listOfDependencies
  * @param linkRelations
  */
-static DirRelations getDirRelations(const ConstDirList &allNonAncestorDirectories,
+static DirRelations getDirRelations(const DirList &allNonAncestorDirectories,
     const DirectoryLevel startLevel)
 {
   /// @todo check that all ancestors are given in the list
@@ -377,10 +373,8 @@ static DirRelations getDirRelations(const ConstDirList &allNonAncestorDirectorie
     if ((dependent->level() - startLevel) <= Config_getInt(MAX_DOT_GRAPH_SUCCESSOR)) // is visible
     {
       // check all dependencies of the subtree itself
-      QDictIterator<UsedDir> usedDirectoryIterator(*dependent->usedDirs());
-      for (; usedDirectoryIterator.current(); ++usedDirectoryIterator)
+      for(const auto& usedDirectory : dependent->usedDirs())
       {
-        const auto usedDirectory = usedDirectoryIterator.current();
         const auto dependee = usedDirectory->dir();
         if (((dependee->level() - startLevel) <= Config_getInt(MAX_DOT_GRAPH_SUCCESSOR)) // is visible
         && (!usedDirectory->isDependencyInherited() || isAtLowerVisibilityBorder(*dependent, startLevel))
@@ -391,7 +385,7 @@ static DirRelations getDirRelations(const ConstDirList &allNonAncestorDirectorie
           auto dependency = Doxygen::dirRelations.find(relationName);
           if (dependency == nullptr)
           {
-            dependency = new DirRelation(relationName, dependent, usedDirectory);
+            dependency = new DirRelation(relationName, dependent, usedDirectory.get());
             Doxygen::dirRelations.append(relationName, dependency);
           }
           relations.push_back(dependency);
@@ -459,7 +453,7 @@ static void writeDotDirDependencyGraph(FTextStream &outputStream, const DirDef *
   directoryDrawingProperties[originalDirectoryPointer].isOriginal = true;
   const auto startLevel = originalDirectoryPointer->level();
   //! @todo limit getSucessors to successor limit?
-  const auto successorsOfOriginalDirectory = getSuccessors(makeConstCopy(originalDirectoryPointer->subDirs()));
+  const auto successorsOfOriginalDirectory = getSuccessors(originalDirectoryPointer->subDirs());
   // contains also the ancestors of the dependees
   const auto originalDirectoryTree = concat(successorsOfOriginalDirectory, originalDirectoryPointer);
   //! @todo get dependees while getting successors
@@ -467,7 +461,7 @@ static void writeDotDirDependencyGraph(FTextStream &outputStream, const DirDef *
   const auto dependeeDirectories = getDependees(
                                                 originalDirectoryTree,
                                                 startLevel - Config_getInt(MAX_DOT_GRAPH_ANCESTOR));
-  for (auto directory : concat(successorsOfOriginalDirectory, dependeeDirectories))
+  for (auto directory : concatLists(successorsOfOriginalDirectory, dependeeDirectories))
   {
     // create default entries for missing elements
     directoryDrawingProperties.insert( { directory, { } });

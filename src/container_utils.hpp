@@ -66,7 +66,7 @@ struct MakeConstValueTypeContainerHelper<ContainerType<ValueType*, Allocator> >
 }// namespace details
 
 template<typename Container, typename ... OtherContainers>
-auto concat(Container containerCopy, OtherContainers &&... additionalContainers)
+auto concatLists(Container containerCopy, OtherContainers &&... additionalContainers)
 {
   std::size_t accumulatedSize = containerCopy.size();
   details::do_in_order { accumulatedSize += additionalContainers.size() ... };
@@ -75,8 +75,8 @@ auto concat(Container containerCopy, OtherContainers &&... additionalContainers)
   return std::move(containerCopy);   // rvo blocked
 }
 
-template<template<typename, typename > class ContainerType, typename ValueType, typename Allocator>
-auto concat(const ContainerType<ValueType, Allocator> &originalContainer, const ValueType &additionalValue)
+template<class Container, typename ValueType>
+auto concat(const Container &originalContainer, const ValueType &additionalValue)
 {
   std::remove_const_t<std::remove_reference_t<decltype(originalContainer)>> newContainer(originalContainer);
   newContainer.push_back(additionalValue);
