@@ -379,7 +379,7 @@ static auto getDependencies(const DirDef *const dependent, const bool isLeaf = t
       dependencies.push_back(dependency);
     }
   }
-  return dependencies;
+  return removeDuplicates(dependencies);
 }
 
 /**
@@ -583,7 +583,7 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
         !usedDir->isParentOf(dir) &&             // don't point to own parent
         ((!udir->isParentOfTheDependee()) ||     // show direct dependencies for this dir
         (isAtLowerVisibilityBorder(*usedDir, dd->level())) ||
-        (std::find(std::begin(usedDirsDrawn), std::end(usedDirsDrawn), udir) != std::end(usedDirsDrawn))))
+        (std::find(std::begin(usedDirsDrawn), std::end(usedDirsDrawn), usedDir) != std::end(usedDirsDrawn))))
     {
       const auto relationName = relation->getOutputFileBase();
       int nrefs = udir->filePairs().count();
