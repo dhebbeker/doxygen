@@ -110,6 +110,12 @@ struct DotDirProperty
    * Is only true for the directory for which the graph is drawn.
    */
   bool isOriginal = false;
+
+  /**
+   * Is true if the directory is alone outside the original directory tree.
+   * Neither a parent not any successor directories are drawn.
+   */
+  bool isPeriperal = false;
 };
 
 typedef std::map<const DirDef* const, DotDirProperty> PropertyMap;
@@ -130,6 +136,7 @@ typedef std::vector<const DirRelation*> DirRelations;
  * This requires to know the maximum directory depth, which will be draw.
  *
  * A simpler method is to sequence through a altering color scheme.
+ *
  * @endinternal
  */
 static QCString getDirectoryBackgroundColorCode(const std::size_t depthIndex)
@@ -276,22 +283,32 @@ static const char* getDirectoryBorderColor(const DotDirProperty &property)
 
 static std::string getDirectoryBorderStyle(const DotDirProperty &property)
 {
-  std::string style = "filled";
+  std::string style;
+  if(!property.isPeriperal){
+    style += "filled,";
+  }
   if (property.isOriginal)
   {
-    style += ",bold";
+    style += "bold,";
   }
   if (property.isIncomplete)
   {
-    style += ",dashed";
+    style += "dashed,";
   }
   return style;
 }
 
-static void drawDirectory(FTextStream &outputStream, const DirDef *const directory,
-    const DotDirProperty &property)
+/**
+ * Puts DOT code for drawing directory to stream and adds it to the list.
+ * @param outStream[in,out] stream to which the DOT code is written to
+ * @param directory[in] will be mapped to a node in DOT code
+ * @param property[in] are evaluated for formatting
+ * @param directoriesInGraph[in,out] lists the directories which have been written to the output stream
+ */
+static void drawDirectory(FTextStream &outStream, const DirDef *const directory, const DotDirProperty &property,
+    QDict<DirDef> &directoriesInGraph)
 {
-  outputStream << "  " << directory->getOutputFileBase() << " ["
+  outStream << "  " << directory->getOutputFileBase() << " ["
       "shape=box, "
       "label=\"" << directory->shortName() << "\", "
       "style=\"" << getDirectoryBorderStyle(property) << "\", "
@@ -299,11 +316,45 @@ static void drawDirectory(FTextStream &outputStream, const DirDef *const directo
       "color=\"" << getDirectoryBorderColor(property) << "\", "
       "URL=\"" << directory->getOutputFileBase() << Doxygen::htmlFileExtension << "\""
       "];\n";
+  directoriesInGraph.insert(directory->getOutputFileBase(), directory);
 }
 
 static bool isAtLowerVisibilityBorder(const DirDef &directory, const DirectoryLevel startLevel)
 {
   return (directory.level() - startLevel) == Config_getInt(MAX_DOT_GRAPH_SUCCESSOR);
+}
+
+/**
+ * Writes DOT code for opening a cluster subgraph to stream.
+ *
+ * Ancestor clusters directly get a label. Other clusters get a plain text node with a label instead.
+ * This is because the plain text node can be used to draw dependency relationships.
+ */
+static void openCluster(FTextStream &outputStream, const DirDef *const directory,
+    const DotDirProperty &directoryProperty, QDict<DirDef> &directoriesInGraph, const bool isAncestor = false)
+{
+  outputStream << "  subgraph cluster" << directory->getOutputFileBase() << " {\n"
+      "    graph [ "
+      "bgcolor=\"" << getDirectoryBackgroundColorCode(directory->level()) << "\", "
+      "pencolor=\"" << getDirectoryBorderColor(directoryProperty) << "\", "
+      "style=\"" << getDirectoryBorderStyle(directoryProperty) << "\", "
+      "label=\"";
+  if (isAncestor)
+  {
+    outputStream << directory->shortName();
+  }
+  outputStream << "\", "
+      "fontname=\"" << Config_getString(DOT_FONTNAME) << "\", "
+      "fontsize=\"" << Config_getInt(DOT_FONTSIZE) << "\", "
+      "URL=\"" << directory->getOutputFileBase() << Doxygen::htmlFileExtension << "\""
+      "]\n";
+  if (!isAncestor)
+  {
+    outputStream << "    " << directory->getOutputFileBase() << " [shape=plaintext, "
+        "label=\"" << directory->shortName() << "\""
+        "];\n";
+    directoriesInGraph.insert(directory->getOutputFileBase(), directory);
+  }
 }
 
 /**
@@ -319,44 +370,28 @@ static bool isAtLowerVisibilityBorder(const DirDef &directory, const DirectoryLe
    1. draw_directory(properties)
  */
 static void drawTree(FTextStream &outputStream, const DirDef* const directory,
-    PropertyMap &directoryProperties, const DirectoryLevel startLevel)
+    PropertyMap &directoryProperties, const DirectoryLevel startLevel, QDict<DirDef> &directoriesInGraph)
 {
 
   auto directoryProperty = directoryProperties[directory];
-  if (directory->subDirs().empty())
+  if (!directory->isCluster())
   {
-    drawDirectory(outputStream, directory, directoryProperty);
+    drawDirectory(outputStream, directory, directoryProperty, directoriesInGraph);
   }
   else
   {
     if (isAtLowerVisibilityBorder(*directory, startLevel))
     {
       directoryProperty.isTruncated = true;
-      drawDirectory(outputStream, directory, directoryProperty);
+      drawDirectory(outputStream, directory, directoryProperty, directoriesInGraph);
     }
     else
     {
-      {  // open cluster
-        static const auto fontName = Config_getString(DOT_FONTNAME);
-        static const auto fontSize = Config_getInt(DOT_FONTSIZE);
-        outputStream << "  subgraph cluster" << directory->getOutputFileBase() << " {\n"
-            "    graph [ "
-            "bgcolor=\"" << getDirectoryBackgroundColorCode(directory->level()) << "\", "
-            "pencolor=\"" << getDirectoryBorderColor(directoryProperty) << "\", "
-            "style=\"" << getDirectoryBorderStyle(directoryProperty) << "\", "
-            "label=\"\", "
-            "fontname=\"" << fontName << "\", "
-            "fontsize=\"" << fontSize << "\", "
-            "URL=\"" << directory->getOutputFileBase() << Doxygen::htmlFileExtension << "\""
-            "]\n"
-            "    " << directory->getOutputFileBase() << " [shape=plaintext, "
-            "label=\"" << directory->shortName() << "\""
-            "];\n";
-      }
+      openCluster(outputStream, directory, directoryProperty, directoriesInGraph, false);
 
       for (const auto subDirectory : directory->subDirs())
       {
-        drawTree(outputStream, subDirectory, directoryProperties, startLevel);
+        drawTree(outputStream, subDirectory, directoryProperties, startLevel, directoriesInGraph);
       }
       {  //close cluster
         outputStream << "  }\n";
@@ -425,45 +460,18 @@ static void drawRelations(FTextStream &outputStream, const DirRelations &listOfR
   }
 }
 
-/**
- * Puts DOT code for drawing directory to stream and adds it to the list.
- * @param outStream[in,out] stream to which the DOT code is written to
- * @param directory[in] will be mapped to a node in DOT code
- * @param fillBackground[in] if the node shall be explicitly filled
- * @param directoriesInGraph[in,out] lists the directories which have been written to the output stream
- */
-static void drawDirectory(FTextStream &outStream, const DirDef *const directory, const bool fillBackground,
-    QDict<DirDef> &directoriesInGraph)
-{
-  outStream << "  " << directory->getOutputFileBase() << " [shape=box "
-      "label=\"" << directory->shortName() << "\" ";
-  if (fillBackground)
-  {
-    outStream << "fillcolor=\"white\" style=\"filled\" ";
-  }
-  if (directory->isCluster())
-  {
-    outStream << "color=\"red\" ";
-  }
-  outStream << "URL=\"" << directory->getOutputFileBase() << Doxygen::htmlFileExtension << "\"];\n";
-  directoriesInGraph.insert(directory->getOutputFileBase(), directory);
-}
-
 void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 {
-  int fontSize = Config_getInt(DOT_FONTSIZE);
-  QCString fontName = Config_getString(DOT_FONTNAME);
-
   QDict<DirDef> dirsInGraph(257);
 
   dirsInGraph.insert(dd->getOutputFileBase(),dd);
 
-  PropertyMap directoryProperties;
+  PropertyMap directoryProperties; //!< @todo remove
   directoryProperties[dd].isOriginal = true;
-  auto rootDir = walkToTreeRoot(dd, dd->level(), directoryProperties);
+//  auto rootDir = walkToTreeRoot(dd, dd->level(), directoryProperties);
 
   std::vector<const DirDef *> usedDirsNotDrawn;
-  for(const auto& usedDir : rootDir->usedDirs())
+  for(const auto& usedDir : dd->usedDirs())
   {
     usedDirsNotDrawn.push_back(usedDir->dir());
   }
@@ -471,12 +479,8 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
   const auto parent = dd->parent();
   if (parent)
   {
-    t << "  subgraph cluster" << dd->parent()->getOutputFileBase() << " {\n";
-    t << "    graph [ bgcolor=\"#ddddee\", pencolor=\"black\", label=\""
-      << dd->parent()->shortName()
-      << "\" fontname=\"" << fontName << "\", fontsize=\"" << fontSize << "\", URL=\"";
-    t << dd->parent()->getOutputFileBase() << Doxygen::htmlFileExtension;
-    t << "\"]\n";
+    const DotDirProperty parentDirProperty = {true, parent->parent()!=nullptr, false, false, false};
+    openCluster(t, parent, parentDirProperty, dirsInGraph, true);
 
     {
       // draw all directories which have `dd->parent()` as parent and `dd` as dependent
@@ -484,7 +488,8 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
       {
         if (dd!=usedDir && dd->parent()==usedDir->parent() && !usedDir->isParentOf(dd))
         {
-          drawDirectory(t, usedDir, usedDir->isCluster() && !Config_getBool(DOT_TRANSPARENT), dirsInGraph);
+          const DotDirProperty usedDirProperty = {false, false, usedDir->isCluster(), false, false};
+          drawDirectory(t, usedDir, usedDirProperty, dirsInGraph);
           return true;
         }
         return false;
@@ -494,10 +499,11 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
     }
   }
 
-  drawTree(t, dd, directoryProperties, dd->level());
+  drawTree(t, dd, directoryProperties, dd->level(), dirsInGraph);
 
   if (dd->parent())
   {
+    // close cluster subgraph
     t << "  }\n";
   }
 
@@ -521,7 +527,8 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
             !usedDir->isParentOf(dd))
           // include if both have the same parent (or no parent)
         {
-          drawDirectory(t, usedDir, usedDir->isCluster() && !Config_getBool(DOT_TRANSPARENT), dirsInGraph);
+          const DotDirProperty usedDirProperty = { false, usedDir->parent() != nullptr, usedDir->isCluster(), false, true};
+          drawDirectory(t, usedDir, usedDirProperty, dirsInGraph);
           break;
         }
         dir=dir->parent();
