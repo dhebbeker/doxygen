@@ -501,7 +501,7 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 
   dirsInGraph.insert(dd->getOutputFileBase(),dd);
 
-  std::vector<const DirDef *> usedDirsNotDrawn;
+  std::vector<const DirDef *> usedDirsNotDrawn, usedDirsDrawn;
   for(const auto& usedDir : dd->usedDirs())
   {
     usedDirsNotDrawn.push_back(usedDir->dir());
@@ -515,22 +515,23 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 
     {
       // draw all directories which have `dd->parent()` as parent and `dd` as dependent
-      const auto newEnd = std::remove_if(usedDirsNotDrawn.begin(), usedDirsNotDrawn.end(), [&](const DirDef *const usedDir)
+      const auto newEnd = std::stable_partition(usedDirsNotDrawn.begin(), usedDirsNotDrawn.end(), [&](const DirDef *const usedDir)
       {
         if (dd!=usedDir && dd->parent()==usedDir->parent())
         {
           const DotDirProperty usedDirProperty = {false, false, usedDir->isCluster(), false, false};
           drawDirectory(t, usedDir, usedDirProperty, dirsInGraph);
-          return true;
+          return false;
         }
-        return false;
+        return true;
       }
       );
+      std::move(newEnd, std::end(usedDirsNotDrawn), std::back_inserter(usedDirsDrawn));
       usedDirsNotDrawn.erase(newEnd, usedDirsNotDrawn.end());
     }
   }
 
-  drawTree(t, dd, dd->level(), dirsInGraph, true);
+  const auto dependencies = drawTree(t, dd, dd->level(), dirsInGraph, true);
 
   if (dd->parent())
   {
@@ -541,29 +542,34 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
   // add nodes for other used directories
   {
     //printf("*** For dir %s\n",shortName().data());
-    for (const auto &usedDir : usedDirsNotDrawn)
-      // for each used dir (=directly used or a parent of a directly used dir)
-    {
-      const DirDef *dir=dd;
-      while (dir)
-      {
-        //printf("*** check relation %s->%s same_parent=%d !%s->isParentOf(%s)=%d\n",
-        //    dir->shortName().data(),usedDir->shortName().data(),
-        //    dir->parent()==usedDir->parent(),
-        //    usedDir->shortName().data(),
-        //    shortName().data(),
-        //    !usedDir->isParentOf(this)
-        //    );
-        if (dir!=usedDir && dir->parent()==usedDir->parent())
-          // include if both have the same parent (or no parent)
+    const auto newEnd =
+        std::stable_partition(usedDirsNotDrawn.begin(), usedDirsNotDrawn.end(), [&](const DirDef *const usedDir)
+	        // for each used dir (=directly used or a parent of a directly used dir)
         {
-          const DotDirProperty usedDirProperty = { false, usedDir->parent() != nullptr, usedDir->isCluster(), false, true};
-          drawDirectory(t, usedDir, usedDirProperty, dirsInGraph);
-          break;
+          const DirDef *dir=dd;
+          while (dir)
+          {
+            //printf("*** check relation %s->%s same_parent=%d !%s->isParentOf(%s)=%d\n",
+            //    dir->shortName().data(),usedDir->shortName().data(),
+            //    dir->parent()==usedDir->parent(),
+            //    usedDir->shortName().data(),
+            //    shortName().data(),
+            //    !usedDir->isParentOf(this)
+            //    );
+            if (dir!=usedDir && dir->parent()==usedDir->parent())
+            // include if both have the same parent (or no parent)
+            {
+              const DotDirProperty usedDirProperty = { false, usedDir->parent() != nullptr, usedDir->isCluster(), false, true};
+              drawDirectory(t, usedDir, usedDirProperty, dirsInGraph);
+              return false;
+            }
+            dir=dir->parent();
+          }
+          return true;
         }
-        dir=dir->parent();
-      }
-    }
+        );
+    std::move(newEnd, std::end(usedDirsNotDrawn), std::back_inserter(usedDirsDrawn));
+    usedDirsNotDrawn.erase(newEnd, usedDirsNotDrawn.end());
   }
 
   /*
