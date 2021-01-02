@@ -359,6 +359,29 @@ static void openCluster(FTextStream &outputStream, const DirDef *const directory
   }
 }
 
+static auto getDependencies(const DirDef *const dependent, const bool isLeaf = true)
+{
+  DirRelations dependencies;
+  // check all dependencies of the subtree itself
+  for (const auto &usedDirectory : dependent->usedDirs())
+  {
+    const auto dependee = usedDirectory->dir();
+    if (isLeaf || !usedDirectory->isDependencyInherited())
+    {
+      QCString relationName;
+      relationName.sprintf("dir_%06d_%06d", dependent->dirCount(), dependee->dirCount());
+      auto dependency = Doxygen::dirRelations.find(relationName);
+      if (dependency == nullptr)
+      {
+        dependency = new DirRelation(relationName, dependent, usedDirectory.get());
+        Doxygen::dirRelations.append(relationName, dependency);
+      }
+      dependencies.push_back(dependency);
+    }
+  }
+  return dependencies;
+}
+
 /**
  * ### draw_limited(x)
  - if x is parent:
@@ -371,36 +394,46 @@ static void openCluster(FTextStream &outputStream, const DirDef *const directory
  - else
    1. draw_directory(properties)
  */
-static void drawTree(FTextStream &outputStream, const DirDef* const directory,
+static DirRelations drawTree(FTextStream &outputStream, const DirDef* const directory,
     const DirectoryLevel startLevel, QDict<DirDef> &directoriesInGraph, const bool isTreeRoot = true)
 {
+  DirRelations dependencies;
   if (!directory->isCluster())
   {
-    const DotDirProperty directoryProperty = {false, false, false, isTreeRoot, false};
+    const DotDirProperty directoryProperty = { false, false, false, isTreeRoot, false };
     drawDirectory(outputStream, directory, directoryProperty, directoriesInGraph);
+    const auto deps = getDependencies(directory);
+    dependencies.insert(std::end(dependencies), std::begin(deps), std::end(deps));
   }
   else
   {
     if (isAtLowerVisibilityBorder(*directory, startLevel))
     {
-      const DotDirProperty directoryProperty = {false, false, true, isTreeRoot, false};
+      const DotDirProperty directoryProperty = { false, false, true, isTreeRoot, false };
       drawDirectory(outputStream, directory, directoryProperty, directoriesInGraph);
+      const auto deps = getDependencies(directory);
+      dependencies.insert(std::end(dependencies), std::begin(deps), std::end(deps));
     }
     else
     {
-      const DotDirProperty directoryProperty = {false, false, false, isTreeRoot, false};
-      openCluster(outputStream, directory, directoryProperty, directoriesInGraph, false);
+      {  // open cluster
+        const DotDirProperty directoryProperty = { false, false, false, isTreeRoot, false };
+        openCluster(outputStream, directory, directoryProperty, directoriesInGraph, false);
+        const auto deps = getDependencies(directory, false);
+        dependencies.insert(std::end(dependencies), std::begin(deps), std::end(deps));
+      }
 
       for (const auto subDirectory : directory->subDirs())
       {
-        drawTree(outputStream, subDirectory, startLevel, directoriesInGraph, false);
+        const auto deps = drawTree(outputStream, subDirectory, startLevel, directoriesInGraph, false);
+        dependencies.insert(std::end(dependencies), std::begin(deps), std::end(deps));
       }
       {  //close cluster
         outputStream << "  }\n";
       }
     }
   }
-
+  return dependencies;
 }
 
 /**
