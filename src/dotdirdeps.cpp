@@ -75,6 +75,7 @@ This approach has the benefit, that the natural structure of the data is used. I
 
 #include <algorithm>
 #include <map>
+#include <iterator>
 #include "dotdirdeps.h"
 
 #include "ftextstream.h"
