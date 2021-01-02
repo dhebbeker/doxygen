@@ -118,7 +118,6 @@ struct DotDirProperty
   bool isPeriperal = false;
 };
 
-typedef std::map<const DirDef* const, DotDirProperty> PropertyMap;
 typedef decltype(std::declval<DirDef>().level()) DirectoryLevel;
 typedef std::vector<const DirRelation*> DirRelations;
 
@@ -190,6 +189,7 @@ static auto getDependees(const DirList &dependents, const DirectoryLevel minLeve
   return removeDuplicates(dependees);
 }
 
+/*
 static auto walkToTreeRoot(const DirDef* const directory, const DirectoryLevel startLevel, PropertyMap& directoryProperties)
 {
   const auto parent = directory->parent();
@@ -203,6 +203,7 @@ static auto walkToTreeRoot(const DirDef* const directory, const DirectoryLevel s
     return walkToTreeRoot(parent, startLevel, directoryProperties);
   }
 }
+*/
 
 /**
  * Puts only the elder into the list.
@@ -213,6 +214,7 @@ static auto walkToTreeRoot(const DirDef* const directory, const DirectoryLevel s
  4. if x has no parent; put x to ancestor list and return; else
  5. Ancestor(p)
  */
+/*
 static void getTreeRootsLimited(const DirDef &basedOnDirectory, const DirList &originalDirectoryTree,
     DirList &ancestors, PropertyMap &directoryProperties, const DirectoryLevel startLevel)
 {
@@ -260,7 +262,7 @@ static DirList getTreeRootsLimited(const DirList &basedOnDirectories,
   }
   return ancestorList;
 }
-
+*/
 static const char* getDirectoryBorderColor(const DotDirProperty &property)
 {
   if (property.isTruncated && property.isOrphaned)
@@ -370,28 +372,28 @@ static void openCluster(FTextStream &outputStream, const DirDef *const directory
    1. draw_directory(properties)
  */
 static void drawTree(FTextStream &outputStream, const DirDef* const directory,
-    PropertyMap &directoryProperties, const DirectoryLevel startLevel, QDict<DirDef> &directoriesInGraph)
+    const DirectoryLevel startLevel, QDict<DirDef> &directoriesInGraph, const bool isTreeRoot = true)
 {
-
-  auto directoryProperty = directoryProperties[directory];
   if (!directory->isCluster())
   {
+    const DotDirProperty directoryProperty = {false, false, false, isTreeRoot, false};
     drawDirectory(outputStream, directory, directoryProperty, directoriesInGraph);
   }
   else
   {
     if (isAtLowerVisibilityBorder(*directory, startLevel))
     {
-      directoryProperty.isTruncated = true;
+      const DotDirProperty directoryProperty = {false, false, true, isTreeRoot, false};
       drawDirectory(outputStream, directory, directoryProperty, directoriesInGraph);
     }
     else
     {
+      const DotDirProperty directoryProperty = {false, false, false, isTreeRoot, false};
       openCluster(outputStream, directory, directoryProperty, directoriesInGraph, false);
 
       for (const auto subDirectory : directory->subDirs())
       {
-        drawTree(outputStream, subDirectory, directoryProperties, startLevel, directoriesInGraph);
+        drawTree(outputStream, subDirectory, startLevel, directoriesInGraph, false);
       }
       {  //close cluster
         outputStream << "  }\n";
@@ -466,10 +468,6 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 
   dirsInGraph.insert(dd->getOutputFileBase(),dd);
 
-  PropertyMap directoryProperties; //!< @todo remove
-  directoryProperties[dd].isOriginal = true;
-//  auto rootDir = walkToTreeRoot(dd, dd->level(), directoryProperties);
-
   std::vector<const DirDef *> usedDirsNotDrawn;
   for(const auto& usedDir : dd->usedDirs())
   {
@@ -499,7 +497,7 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
     }
   }
 
-  drawTree(t, dd, directoryProperties, dd->level(), dirsInGraph);
+  drawTree(t, dd, dd->level(), dirsInGraph, true);
 
   if (dd->parent())
   {
