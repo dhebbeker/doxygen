@@ -572,42 +572,31 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
     usedDirsNotDrawn.erase(newEnd, usedDirsNotDrawn.end());
   }
 
-  /*
+
   // add relations between all selected directories
-  const DirDef *dir;
-  QDictIterator<DirDef> di(dirsInGraph);
-  for (;(dir=di.current());++di) // foreach dir in the graph
+  for (const auto relation : dependencies)
   {
-    for (const auto &udir : dir->usedDirs())
-    {
-      const DirDef *usedDir=udir->dir();
-      if ((dir!=dd || !udir->inherited()) &&     // only show direct dependencies for this dir
-        (usedDir!=dd || !udir->inherited()) && // only show direct dependencies for this dir
+    const auto udir = relation->destination();
+    const auto usedDir = udir->dir();
+    const auto dir = relation->source();
+    if (
         !usedDir->isParentOf(dir) &&             // don't point to own parent
-        dirsInGraph.find(usedDir->getOutputFileBase())) // only point to nodes that are in the graph
+        ((!udir->isParentOfTheDependee()) ||     // show direct dependencies for this dir
+        (isAtLowerVisibilityBorder(*usedDir, dd->level())) ||
+        (std::find(std::begin(usedDirsDrawn), std::end(usedDirsDrawn), udir) != std::end(usedDirsDrawn))))
+    {
+      const auto relationName = relation->getOutputFileBase();
+      int nrefs = udir->filePairs().count();
+      t << "  " << dir->getOutputFileBase() << "->"
+        << usedDir->getOutputFileBase();
+      t << " [headlabel=\"" << nrefs << "\", labeldistance=1.5";
+      if (linkRelations)
       {
-        QCString relationName;
-        relationName.sprintf("dir_%06d_%06d",dir->dirCount(),usedDir->dirCount());
-        if (Doxygen::dirRelations.find(relationName)==0)
-        {
-          // new relation
-          Doxygen::dirRelations.append(relationName,
-            new DirRelation(relationName,dir,udir.get()));
-        }
-        int nrefs = udir->filePairs().count();
-        t << "  " << dir->getOutputFileBase() << "->"
-          << usedDir->getOutputFileBase();
-        t << " [headlabel=\"" << nrefs << "\", labeldistance=1.5";
-        if (linkRelations)
-        {
-          t << " headhref=\"" << relationName << Doxygen::htmlFileExtension << "\"";
-        }
-        t << "];\n";
+        t << " headhref=\"" << relationName << Doxygen::htmlFileExtension << "\"";
       }
+      t << "];\n";
     }
   }
-  */
-
 }
 
 DotDirDeps::DotDirDeps(const DirDef *dir) : m_dir(dir)
