@@ -321,9 +321,9 @@ static void drawDirectory(FTextStream &outStream, const DirDef *const directory,
   directoriesInGraph.insert(directory->getOutputFileBase(), directory);
 }
 
-static bool isAtLowerVisibilityBorder(const DirDef &directory, const DirectoryLevel startLevel)
+static bool isAtLowerVisibilityBorder(const DirDef * const directory, const DirectoryLevel startLevel)
 {
-  return (directory.level() - startLevel) == Config_getInt(MAX_DOT_GRAPH_SUCCESSOR);
+  return (directory->level() - startLevel) == Config_getInt(MAX_DOT_GRAPH_SUCCESSOR);
 }
 
 /**
@@ -407,7 +407,7 @@ static DirRelations drawTree(FTextStream &outputStream, const DirDef* const dire
   }
   else
   {
-    if (isAtLowerVisibilityBorder(*directory, startLevel))
+    if (isAtLowerVisibilityBorder(directory, startLevel))
     {
       const DotDirProperty directoryProperty = { false, false, true, isTreeRoot, false };
       drawDirectory(outputStream, directory, directoryProperty, directoriesInGraph);
@@ -445,6 +445,7 @@ static DirRelations drawTree(FTextStream &outputStream, const DirDef* const dire
  * @param listOfDependencies
  * @param linkRelations
  */
+/*
 static DirRelations getDirRelations(const DirList &allNonAncestorDirectories,
     const DirectoryLevel startLevel)
 {
@@ -494,7 +495,7 @@ static void drawRelations(FTextStream &outputStream, const DirRelations &listOfR
     outputStream << "];\n";
   }
 }
-
+*/
 void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 {
   QDict<DirDef> dirsInGraph(257);
@@ -579,11 +580,13 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
     const auto udir = relation->destination();
     const auto usedDir = udir->dir();
     const auto dir = relation->source();
-    if (
-        !usedDir->isParentOf(dir) &&             // don't point to own parent
-        ((!udir->isParentOfTheDependee()) ||     // show direct dependencies for this dir
-        (isAtLowerVisibilityBorder(*usedDir, dd->level())) ||
-        (std::find(std::begin(usedDirsDrawn), std::end(usedDirsDrawn), usedDir) != std::end(usedDirsDrawn))))
+
+    const bool destIsSibling = std::find(std::begin(usedDirsDrawn), std::end(usedDirsDrawn), usedDir) != std::end(usedDirsDrawn);
+    const bool destIsDrawn = dirsInGraph.find(usedDir->getOutputFileBase()) != nullptr;
+    const bool notInherited = !udir->isParentOfTheDependee();
+    const bool atVisibilityLimit = isAtLowerVisibilityBorder(usedDir, dd->level());
+
+    if(destIsSibling || (destIsDrawn && (notInherited || atVisibilityLimit)))
     {
       const auto relationName = relation->getOutputFileBase();
       int nrefs = udir->filePairs().count();
