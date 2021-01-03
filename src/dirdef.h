@@ -24,7 +24,6 @@
 #include <map>
 #include <qglobal.h>
 #include <qcstring.h>
-#include "container_utils.hpp"
 
 
 class FileList;
@@ -71,21 +70,20 @@ class FilePairDict : public SDict<FilePair>
 class UsedDir
 {
   public:
-    static QCString generateKey(const DirDef* const directory, const bool isDependencyInherited, const bool isParentOfTheDependee);
-    UsedDir(const DirDef *dir,const bool isDependencyInherited, const bool isParentOfTheDependee);
+    UsedDir(const DirDef *dir);
     virtual ~UsedDir();
-    void addFileDep(FileDef *srcFd,FileDef *dstFd);
+    void addFileDep(FileDef *srcFd,FileDef *dstFd, const bool isInheritedByDependent, const bool isInheritedByDependee);
     FilePair *findFilePair(const char *name);
     const FilePairDict &filePairs() const { return m_filePairs; }
     const DirDef *dir() const { return m_dir; }
-    bool isDependencyInherited() const;
-    bool isParentOfTheDependee() const;
+    bool isAllDependentsInherited() const;
+    bool isAllDependeesInherited(const bool checkAlsoInheritedDependents) const;
     void sort();
 
   private:
     const DirDef *m_dir;
     FilePairDict m_filePairs;
-    const bool m_isOriginalDependent, m_isOriginalDependee;
+    bool m_SODO, m_SODI, m_SIDO, m_SIDI;
 };
 
 // ------------------

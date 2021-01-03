@@ -31,7 +31,7 @@
 #include "docparser.h"
 #include "definitionimpl.h"
 #include "filedef.h"
-#include <string>
+
 
 //----------------------------------------------------------------------
 
@@ -655,8 +655,7 @@ void DirDefImpl::addUsesDependency(DirDef *dir,FileDef *srcFd,
 
   // levels match => add direct dependency
   bool added=FALSE;
-  const auto dirKey = UsedDir::generateKey(dir, inheritedByDependent, inheritedByDependee);
-  UsedDir *usedDir = m_usedDirs.find(dirKey);
+  UsedDir *usedDir = m_usedDirs.find(dir->getOutputFileBase());
   if (usedDir) // dir dependency already present
   {
      const FilePair *usedPair = usedDir->findFilePair(
@@ -664,7 +663,7 @@ void DirDefImpl::addUsesDependency(DirDef *dir,FileDef *srcFd,
      if (usedPair==0) // new file dependency
      {
        //printf("  => new file\n");
-       usedDir->addFileDep(srcFd,dstFd);
+       usedDir->addFileDep(srcFd,dstFd, inheritedByDependent, inheritedByDependee);
        added=TRUE;
      }
      else
@@ -675,9 +674,9 @@ void DirDefImpl::addUsesDependency(DirDef *dir,FileDef *srcFd,
   else // new directory dependency
   {
     //printf("  => new file\n");
-    auto newUsedDir = std::make_unique<UsedDir>(dir, inheritedByDependent, inheritedByDependee);
-    newUsedDir->addFileDep(srcFd,dstFd);
-    usedDir = m_usedDirs.add(dirKey,std::move(newUsedDir));
+    auto newUsedDir = std::make_unique<UsedDir>(dir);
+    newUsedDir->addFileDep(srcFd,dstFd, inheritedByDependent, inheritedByDependee);
+    usedDir = m_usedDirs.add(dir->getOutputFileBase(),std::move(newUsedDir));
     added=TRUE;
   }
   if (added)
@@ -775,8 +774,8 @@ int FilePairDict::compareValues(const FilePair *left,const FilePair *right) cons
 
 //----------------------------------------------------------------------
 
-UsedDir::UsedDir(const DirDef *dir,const bool isDependencyInherited, const bool isParentOfTheDependee) :
-   m_dir(dir), m_filePairs(7), m_isOriginalDependent(!isDependencyInherited), m_isOriginalDependee(!isParentOfTheDependee)
+UsedDir::UsedDir(const DirDef *dir) :
+   m_dir(dir), m_filePairs(7), m_SODO(false), m_SODI(false), m_SIDO(false), m_SIDI(false)
 {
   m_filePairs.setAutoDelete(TRUE);
 }
@@ -786,10 +785,14 @@ UsedDir::~UsedDir()
 }
 
 
-void UsedDir::addFileDep(FileDef *srcFd,FileDef *dstFd)
+void UsedDir::addFileDep(FileDef *srcFd,FileDef *dstFd, const bool isInheritedByDependent, const bool isInheritedByDependee)
 {
   m_filePairs.append(srcFd->getOutputFileBase()+dstFd->getOutputFileBase(),
                      new FilePair(srcFd,dstFd));
+  m_SODO = m_SODO || (!isInheritedByDependent && !isInheritedByDependee);
+  m_SODI = m_SODI || (!isInheritedByDependent && isInheritedByDependee);
+  m_SIDO = m_SIDO || (isInheritedByDependent && !isInheritedByDependee);
+  m_SIDI = m_SIDI || (isInheritedByDependent && isInheritedByDependee);
 }
 
 void UsedDir::sort()
@@ -1148,17 +1151,12 @@ const DirDef *toDirDef(const Definition *d)
   }
 }
 
-bool UsedDir::isDependencyInherited() const
+bool UsedDir::isAllDependentsInherited() const
 {
-  return !m_isOriginalDependent;
+  return !(m_SODI || m_SODO);
 }
 
-bool UsedDir::isParentOfTheDependee() const
+bool UsedDir::isAllDependeesInherited(const bool checkAlsoInheritedDependents) const
 {
-  return !m_isOriginalDependee;
-}
-
-QCString UsedDir::generateKey(const DirDef* const directory, const bool isDependencyInherited, const bool isParentOfTheDependee)
-{
-  return directory->getOutputFileBase().append(std::to_string(isDependencyInherited).c_str()).append(std::to_string(isParentOfTheDependee).c_str());
+  return !(m_SODO || (checkAlsoInheritedDependents && m_SIDO));
 }

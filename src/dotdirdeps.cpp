@@ -119,8 +119,18 @@ struct DotDirProperty
   bool isPeriperal = false;
 };
 
+struct LocalDirRelation
+{
+  LocalDirRelation(const DirRelation *const dirRelation, const bool isPointingOnlyToInheritedDependees) :
+      m_dirRelation(dirRelation), m_isPointingOnlyToInheritedDependees(isPointingOnlyToInheritedDependees)
+  {
+  }
+  const DirRelation *m_dirRelation;
+  bool m_isPointingOnlyToInheritedDependees;
+};
+
+typedef std::vector<LocalDirRelation> DirRelations;
 typedef decltype(std::declval<DirDef>().level()) DirectoryLevel;
-typedef std::vector<const DirRelation*> DirRelations;
 
 /**
  * returns a DOT color name according to the directory depth
@@ -367,7 +377,7 @@ static auto getDependencies(const DirDef *const dependent, const bool isLeaf = t
   for (const auto &usedDirectory : dependent->usedDirs())
   {
     const auto dependee = usedDirectory->dir();
-    if (isLeaf || !usedDirectory->isDependencyInherited())
+    if (isLeaf || !usedDirectory->isAllDependentsInherited())
     {
       QCString relationName;
       relationName.sprintf("dir_%06d_%06d", dependent->dirCount(), dependee->dirCount());
@@ -377,10 +387,10 @@ static auto getDependencies(const DirDef *const dependent, const bool isLeaf = t
         dependency = new DirRelation(relationName, dependent, usedDirectory.get());
         Doxygen::dirRelations.append(relationName, dependency);
       }
-      dependencies.push_back(dependency);
+      dependencies.emplace_back(dependency, usedDirectory->isAllDependeesInherited(isLeaf));
     }
   }
-  return removeDuplicates(dependencies);
+  return dependencies;
 }
 
 /**
@@ -578,18 +588,18 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
   // add relations between all selected directories
   for (const auto relation : dependencies)
   {
-    const auto udir = relation->destination();
+    const auto udir = relation.m_dirRelation->destination();
     const auto usedDir = udir->dir();
-    const auto dir = relation->source();
 
     const bool destIsSibling = std::find(std::begin(usedDirsDrawn), std::end(usedDirsDrawn), usedDir) != std::end(usedDirsDrawn);
     const bool destIsDrawn = dirsInGraph.find(usedDir->getOutputFileBase()) != nullptr;
-    const bool notInherited = !udir->isParentOfTheDependee();
+    const bool notInherited = !relation.m_isPointingOnlyToInheritedDependees;
     const bool atVisibilityLimit = isAtLowerVisibilityBorder(usedDir, dd->level());
 
     if(destIsSibling || (destIsDrawn && (notInherited || atVisibilityLimit)))
     {
-      const auto relationName = relation->getOutputFileBase();
+      const auto relationName = relation.m_dirRelation->getOutputFileBase();
+      const auto dir = relation.m_dirRelation->source();
       int nrefs = udir->filePairs().count();
       t << "  " << dir->getOutputFileBase() << "->"
         << usedDir->getOutputFileBase();
