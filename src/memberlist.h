@@ -17,10 +17,11 @@
 #define MEMBERLIST_H
 
 #include <vector>
+#include <algorithm>
 
 #include <qlist.h>
 #include "memberdef.h"
-#include "sortdict.h"
+#include "linkedmap.h"
 #include "types.h"
 #include "membergroup.h"
 
@@ -127,22 +128,27 @@ class MemberListIterator : public QListIterator<MemberDef>
     virtual ~MemberListIterator() {}
 };
 
-/** An unsorted dictionary of MemberDef objects. */
-class MemberDict : public QDict<MemberDef>
+class MemberLinkedRefMap : public LinkedRefMap<const MemberDef>
 {
-  public:
-    MemberDict(uint size) : QDict<MemberDef>(size) {}
-    virtual ~MemberDict() {}
 };
 
-/** A sorted dictionary of MemberDef objects. */
-class MemberSDict : public SDict<MemberDef>
+class MemberLists : public std::vector<MemberList>
 {
   public:
-    MemberSDict(uint size=17) : SDict<MemberDef>(size) {}
-    virtual ~MemberSDict() {}
+    MemberLists() = default;
+    MemberList &get(MemberListType lt)
+    {
+      // find the list with the given type
+      auto it = std::find_if(begin(),end(),[&lt](const auto &ml) { return ml.listType()==lt; });
+      if (it!=end()) return *it;
+      // or create a new list if it is not found
+      emplace_back(lt);
+      return back();
+    }
+
   private:
-    int compareValues(const MemberDef *item1,const MemberDef *item2) const;
+    MemberLists(const MemberLists &) = delete;
+    MemberLists &operator=(const MemberLists &) = delete;
 };
 
 int genericCompareMembers(const MemberDef *c1,const MemberDef *c2);

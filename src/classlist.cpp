@@ -26,39 +26,6 @@
 #include "arguments.h"
 #include "groupdef.h"
 
-ClassList::ClassList() : QList<ClassDef>()
-{
-}
-
-ClassList::~ClassList()
-{
-}
-
-static int compItems(const ClassDef *c1,const ClassDef *c2)
-{
-  static bool b = Config_getBool(SORT_BY_SCOPE_NAME);
-  if (b)
-  {
-     return qstricmp(c1->name(), c2->name());
-  }
-  else
-  {
-     return qstricmp(c1->className(), c2->className());
-  }
-}
-
-int ClassList::compareValues(const ClassDef *item1, const ClassDef *item2) const
-{
-  return compItems(item1,item2);
-}
-
-ClassListIterator::ClassListIterator(const ClassList &cllist) :
-  QListIterator<ClassDef>(cllist)
-{
-}
-
-//-------------------------------------------
-
 bool ClassLinkedRefMap::declVisible(const ClassDef::CompoundType *filter) const
 {
   bool hideUndocClasses = Config_getBool(HIDE_UNDOC_CLASSES);
@@ -145,53 +112,5 @@ void ClassLinkedRefMap::writeDocumentation(OutputList &ol,const Definition * con
     }
   }
 }
-
-//-------------------------------------------
-
-void GenericsSDict::insert(const QCString &key,ClassDef *cd)
-{
-  int i=key.find('<');
-  if (i==-1) return;
-  auto argList = stringToArgumentList(SrcLangExt_CSharp, key.mid(i));
-  int c = (int)argList->size();
-  if (c==0) return;
-  GenericsCollection *collection = m_dict.find(key.left(i));
-  if (collection==0) // new name
-  {
-    collection = new GenericsCollection;
-    m_dict.append(key.left(i),collection);
-  }
-  if (collection->find(c)==0) // should always be 0!
-  {
-    collection->insert(c,cd);
-  }
-}
-
-ClassDef *GenericsSDict::find(const QCString &key)
-{
-  int i=key.find('<');
-  if (i==-1)
-  {
-    GenericsCollection *collection = m_dict.find(key);
-    if (collection && collection->count()==1)
-    {
-      QIntDictIterator<ClassDef> it(*collection);
-      return it.current();
-    }
-  }
-  else
-  {
-    GenericsCollection *collection = m_dict.find(key.left(i));
-    if (collection)
-    {
-      auto argList = stringToArgumentList(SrcLangExt_CSharp,key.mid(i));
-      int c = (int)argList->size();
-      return collection->find(c);
-    }
-  }
-  return 0;
-}
-
-
 
 

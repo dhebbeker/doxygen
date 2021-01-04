@@ -34,15 +34,14 @@ struct Argument;
 class MemberDef;
 class MemberDefMutable;
 class MemberList;
-class MemberDict;
-class ClassList;
+class MemberLists;
 class ClassLinkedRefMap;
 class OutputList;
 class FileDef;
 class FileList;
 class NamespaceDef;
 class MemberDef;
-class ExampleSDict;
+class ExampleList;
 class MemberNameInfoLinkedMap;
 class UsesClassDict;
 class ConstraintClassDict;
@@ -318,7 +317,7 @@ class ClassDef : public Definition
     virtual MemberList *getMemberList(MemberListType lt) const = 0;
 
     /** Returns the list containing the list of members sorted per type */
-    virtual const QList<MemberList> &getMemberLists() const = 0;
+    virtual const MemberLists &getMemberLists() const = 0;
 
     /** Returns the member groups defined for this class */
     virtual const MemberGroupList &getMemberGroups() const = 0;
@@ -346,7 +345,7 @@ class ClassDef : public Definition
     virtual const FileList &usedFiles() const = 0;
 
     virtual const ArgumentList &typeConstraints() const = 0;
-    virtual const ExampleSDict *exampleList() const = 0;
+    virtual const ExampleList &getExamples() const = 0;
     virtual bool hasExamples() const = 0;
     virtual QCString getMemberListFileName() const = 0;
     virtual bool subGrouping() const = 0;

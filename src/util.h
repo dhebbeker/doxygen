@@ -50,7 +50,6 @@ class MemberDef;
 class ExampleSDict;
 class GroupDef;
 class NamespaceSDict;
-class ClassList;
 struct TagInfo;
 class PageDef;
 class SectionInfo;
@@ -206,7 +205,7 @@ QCString tempArgListToString(const ArgumentList &al,SrcLangExt lang,bool include
 
 QCString generateMarker(int id);
 
-void writeExample(OutputList &ol,ExampleSDict *el);
+void writeExamples(OutputList &ol,const ExampleList &el);
 
 QCString stripAnonymousNamespaceScope(const QCString &s);
 

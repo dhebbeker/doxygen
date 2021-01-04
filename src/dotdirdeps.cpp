@@ -85,10 +85,10 @@ static std::string getDirectoryBorderStyle(const DotDirProperty &property)
 
 /**
  * Puts DOT code for drawing directory to stream and adds it to the list.
- * @param outStream[in,out] stream to which the DOT code is written to
- * @param directory[in] will be mapped to a node in DOT code
- * @param property[in] are evaluated for formatting
- * @param directoriesInGraph[in,out] lists the directories which have been written to the output stream
+ * @param[in,out] outStream stream to which the DOT code is written to
+ * @param[in] directory will be mapped to a node in DOT code
+ * @param[in] property are evaluated for formatting
+ * @param[in,out] directoriesInGraph lists the directories which have been written to the output stream
  */
 static void drawDirectory(FTextStream &outStream, const DirDef *const directory, const DotDirProperty &property,
     QDict<DirDef> &directoriesInGraph)
@@ -159,12 +159,7 @@ static auto getDependencies(const DirDef *const dependent, const bool isLeaf)
     {
       QCString relationName;
       relationName.sprintf("dir_%06d_%06d", dependent->dirCount(), dependee->dirCount());
-      auto dependency = Doxygen::dirRelations.find(relationName);
-      if (dependency == nullptr)
-      {
-        dependency = new DirRelation(relationName, dependent, usedDirectory.get());
-        Doxygen::dirRelations.append(relationName, dependency);
-      }
+      const auto dependency = new DirRelation(relationName, dependent, usedDirectory.get());
       dependencies.emplace_back(dependency, usedDirectory->isAllDependeesInherited(isLeaf));
     }
   }
@@ -299,30 +294,35 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 
 
   // add relations between all selected directories
-  for (const auto relationTuple : dependencies)
   {
-    const auto relation = std::get<0>(relationTuple);
-    const auto udir = relation->destination();
-    const auto usedDir = udir->dir();
-
-    const bool destIsSibling = std::find(std::begin(usedDirsDrawn), std::end(usedDirsDrawn), usedDir) != std::end(usedDirsDrawn);
-    const bool destIsDrawn = dirsInGraph.find(usedDir->getOutputFileBase()) != nullptr;
-    const bool notInherited = !std::get<1>(relationTuple);
-    const bool atVisibilityLimit = isAtLowerVisibilityBorder(usedDir, dd->level());
-
-    if(destIsSibling || (destIsDrawn && (notInherited || atVisibilityLimit)))
+    for (const auto relationTuple : dependencies)
     {
-      const auto relationName = relation->getOutputFileBase();
-      const auto dir = relation->source();
-      int nrefs = udir->filePairs().count();
-      t << "  " << dir->getOutputFileBase() << "->"
-        << usedDir->getOutputFileBase();
-      t << " [headlabel=\"" << nrefs << "\", labeldistance=1.5";
-      if (linkRelations)
+      const auto relation = std::get<0>(relationTuple);
+      const auto udir = relation->destination();
+      const auto usedDir = udir->dir();
+
+      const bool destIsSibling = std::find(std::begin(usedDirsDrawn), std::end(usedDirsDrawn), usedDir) != std::end(usedDirsDrawn);
+      const bool destIsDrawn = dirsInGraph.find(usedDir->getOutputFileBase()) != nullptr;
+      const bool notInherited = !std::get<1>(relationTuple);
+      const bool atVisibilityLimit = isAtLowerVisibilityBorder(usedDir, dd->level());
+
+      if (destIsSibling || (destIsDrawn && (notInherited || atVisibilityLimit)))
       {
-        t << " headhref=\"" << relationName << Doxygen::htmlFileExtension << "\"";
+        const auto relationName = relation->getOutputFileBase();
+        const auto dir = relation->source();
+        Doxygen::dirRelations.add(relationName,
+            std::make_unique<DirRelation>(
+               relationName,dir,udir));
+        int nrefs = udir->filePairs().count();
+        t << "  " << dir->getOutputFileBase() << "->"
+          << usedDir->getOutputFileBase();
+        t << " [headlabel=\"" << nrefs << "\", labeldistance=1.5";
+        if (linkRelations)
+        {
+          t << " headhref=\"" << relationName << Doxygen::htmlFileExtension << "\"";
+        }
+        t << "];\n";
       }
-      t << "];\n";
     }
   }
 }

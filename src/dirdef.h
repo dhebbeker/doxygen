@@ -75,8 +75,8 @@ class UsedDir
 
     /**
      * Take up dependency between files.
-     * @param srcFd[in] dependent file which depends on dstFd
-     * @param dstFd[in] dependee file on which srcFd depends on
+     * @param[in] srcFd dependent file which depends on dstFd
+     * @param[in] dstFd dependee file on which srcFd depends on
      * @param isInheritedByDependent true if dependency was inherited by dependent
      * @param isInheritedByDependee true if dependency was inherited by dependee
      */
@@ -197,19 +197,6 @@ class DirRelation
     UsedDir *m_dst;
 };
 
-#if 0
-/** A sorted dictionary of DirDef objects. */
-class DirSDict : public SDict<DirDef>
-{
-  public:
-    DirSDict(uint size) : SDict<DirDef>(size) {}
-    int compareValues(const DirDef *item1,const DirDef *item2) const
-    {
-      return qstricmp(item1->shortName(),item2->shortName());
-    }
-};
-#endif
-
 /** A linked map of directories */
 class DirLinkedMap : public LinkedMap<DirDef>
 {
@@ -220,9 +207,11 @@ class DirList : public std::vector<const DirDef*>
 {
 };
 
+class DirRelationLinkedMap : public LinkedMap<DirRelation>
+{
+};
 
 // ------------------
-
 
 void buildDirectories();
 void generateDirDocs(OutputList &ol);

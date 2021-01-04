@@ -148,7 +148,7 @@ ClangUsrMap          *Doxygen::clangUsrMap = 0;
 bool                  Doxygen::outputToWizard=FALSE;
 Cache<std::string,LookupInfo> *Doxygen::lookupCache;
 DirLinkedMap         *Doxygen::dirLinkedMap;
-SDict<DirRelation>    Doxygen::dirRelations(257);
+DirRelationLinkedMap  Doxygen::dirRelations;
 ParserManager        *Doxygen::parserManager = 0;
 QCString              Doxygen::htmlFileExtension;
 bool                  Doxygen::suppressDocWarnings = FALSE;
@@ -1190,10 +1190,11 @@ static void resolveClassNestingRelations()
     ++iteration;
     struct ClassAlias
     {
-      ClassAlias(const QCString &name,std::unique_ptr<ClassDef> cd) :
-        aliasFullName(name),aliasCd(std::move(cd)) {}
+      ClassAlias(const QCString &name,std::unique_ptr<ClassDef> cd,DefinitionMutable *ctx) :
+        aliasFullName(name),aliasCd(std::move(cd)), aliasContext(ctx) {}
       const QCString aliasFullName;
       std::unique_ptr<ClassDef> aliasCd;
+      DefinitionMutable *aliasContext;
     };
     std::vector<ClassAlias> aliases;
     for (const auto &icd : *Doxygen::classLinkedMap)
@@ -1230,9 +1231,8 @@ static void resolveClassNestingRelations()
                 if (dm)
                 {
                   std::unique_ptr<ClassDef> aliasCd { createClassDefAlias(d,cd) };
-                  dm->addInnerCompound(aliasCd.get());
                   QCString aliasFullName = d->qualifiedName()+"::"+aliasCd->localName();
-                  aliases.push_back(ClassAlias(aliasFullName,std::move(aliasCd)));
+                  aliases.push_back(ClassAlias(aliasFullName,std::move(aliasCd),dm));
                   //printf("adding %s to %s as %s\n",qPrint(aliasCd->name()),qPrint(d->name()),qPrint(aliasFullName));
                 }
               }
@@ -1255,7 +1255,11 @@ static void resolveClassNestingRelations()
     // add aliases
     for (auto &alias : aliases)
     {
-       Doxygen::classLinkedMap->add(alias.aliasFullName,std::move(alias.aliasCd));
+       ClassDef *aliasCd = Doxygen::classLinkedMap->add(alias.aliasFullName,std::move(alias.aliasCd));
+       if (aliasCd)
+       {
+         alias.aliasContext->addInnerCompound(aliasCd);
+       }
     }
   }
 
@@ -4156,7 +4160,18 @@ static bool findTemplateInstanceRelation(const Entry *root,
   ClassDefMutable *instanceClass = toClassDefMutable(
                      templateClass->insertTemplateInstance(
                      root->fileName,root->startLine,root->startColumn,templSpec,freshInstance));
-  if (isArtificial) instanceClass->setArtificial(TRUE);
+  if (isArtificial)
+  {
+    instanceClass->setArtificial(TRUE);
+    for (const auto innerClass : instanceClass->getClasses())
+    {
+      ClassDefMutable *innerClassMutable = toClassDefMutable(innerClass);
+      if (innerClassMutable)
+      {
+        innerClassMutable->setArtificial(TRUE);
+      }
+    }
+  }
   instanceClass->setLanguage(root->lang);
 
   if (freshInstance)
@@ -9310,10 +9325,21 @@ static void generateDiskNames()
       int first_path_size = static_cast<int>(first.path.size())-1; // -1 to skip trailing slash
       int last_path_size  = static_cast<int>(last.path.size())-1;  // -1 to skip trailing slash
       int j=0;
-      for (int i=0;i<first_path_size && i<last_path_size;i++)
+      int i=0;
+      for (i=0;i<first_path_size && i<last_path_size;i++)
       {
         if (first.path[i]=='/') j=i;
         if (first.path[i]!=last.path[i]) break;
+      }
+      if (i==first_path_size && i<last_path_size && last.path[i]=='/')
+      {
+        // case first='some/path' and last='some/path/more' => match is 'some/path'
+        j=first_path_size;
+      }
+      else if (i==last_path_size && i<first_path_size && first.path[i]=='/')
+      {
+        // case first='some/path/more' and last='some/path' => match is 'some/path'
+        j=last_path_size;
       }
 
       // add non-common part of the path to the name
@@ -10153,7 +10179,6 @@ void initDoxygen()
   Doxygen::pageLinkedMap = new PageLinkedMap;          // all doc pages
   Doxygen::exampleLinkedMap = new PageLinkedMap;       // all examples
   Doxygen::tagDestinationDict.setAutoDelete(TRUE);
-  Doxygen::dirRelations.setAutoDelete(TRUE);
   Doxygen::indexList = new IndexList;
 
   // initialisation of these globals depends on

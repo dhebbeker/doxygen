@@ -48,6 +48,9 @@
 
 //---------------------------------------------------------------------------
 
+using DefinitionLineMap = std::unordered_map<int,const Definition *>;
+using MemberDefLineMap  = std::unordered_map<int,const MemberDef *>;
+
 class FileDefImpl : public DefinitionMixin<FileDef>
 {
   public:
@@ -69,8 +72,8 @@ class FileDefImpl : public DefinitionMixin<FileDef>
     virtual const QCString &docName() const { return m_docname; }
     virtual bool isSource() const { return m_isSource; }
     virtual bool isDocumentationFile() const;
-    virtual Definition *getSourceDefinition(int lineNr) const;
-    virtual MemberDef *getSourceMember(int lineNr) const;
+    virtual const Definition *getSourceDefinition(int lineNr) const;
+    virtual const MemberDef *getSourceMember(int lineNr) const;
     virtual QCString getPath() const { return m_path; }
     virtual QCString getVersion() const { return m_fileVersion; }
     virtual bool isLinkableInProject() const;
@@ -84,7 +87,7 @@ class FileDefImpl : public DefinitionMixin<FileDef>
     virtual QList<IncludeInfo> *includedByFileList() const { return m_includedByList; }
     virtual void getAllIncludeFilesRecursively(StringVector &incFiles) const;
     virtual MemberList *getMemberList(MemberListType lt) const;
-    virtual const QList<MemberList> &getMemberLists() const { return m_memberLists; }
+    virtual const MemberLists &getMemberLists() const { return m_memberLists; }
     virtual const MemberGroupList &getMemberGroups() const  { return m_memberGroups; }
     virtual NamespaceLinkedRefMap getNamespaces() const     { return m_namespaces; }
     virtual ClassLinkedRefMap getClasses() const   { return m_classes; }
@@ -95,7 +98,7 @@ class FileDefImpl : public DefinitionMixin<FileDef>
     virtual void countMembers();
     virtual int numDocMembers() const;
     virtual int numDecMembers() const;
-    virtual void addSourceRef(int line,Definition *d,MemberDef *md);
+    virtual void addSourceRef(int line,const Definition *d,const MemberDef *md);
     virtual void writeDocumentation(OutputList &ol);
     virtual void writeMemberPages(OutputList &ol);
     virtual void writeQuickMemberLinks(OutputList &ol,const MemberDef *currentMd) const;
@@ -127,7 +130,6 @@ class FileDefImpl : public DefinitionMixin<FileDef>
 
   private:
     void acquireFileVersion();
-    MemberList *createMemberList(MemberListType lt);
     void addMemberToList(MemberListType lt,MemberDef *md);
     void writeMemberDeclarations(OutputList &ol,MemberListType lt,const QCString &title);
     void writeMemberDocumentation(OutputList &ol,MemberListType lt,const QCString &title);
@@ -162,13 +164,13 @@ class FileDefImpl : public DefinitionMixin<FileDef>
     QCString              m_outputDiskName;
     QCString              m_fileName;
     QCString              m_docname;
-    QIntDict<Definition> *m_srcDefDict;
-    QIntDict<MemberDef>  *m_srcMemberDict;
+    DefinitionLineMap     m_srcDefMap;
+    MemberDefLineMap      m_srcMemberMap;
     bool                  m_isSource;
     QCString              m_fileVersion;
     PackageDef           *m_package;
     DirDef               *m_dir;
-    QList<MemberList>     m_memberLists;
+    MemberLists           m_memberLists;
     MemberGroupList       m_memberGroups;
     NamespaceLinkedRefMap m_namespaces;
     ClassLinkedRefMap     m_classes;
@@ -230,8 +232,6 @@ FileDefImpl::FileDefImpl(const char *p,const char *nm,
   m_includeDict       = 0;
   m_includedByList    = 0;
   m_includedByDict    = 0;
-  m_srcDefDict        = 0;
-  m_srcMemberDict     = 0;
   m_package           = 0;
   m_isSource          = guessSection(nm)==Entry::SOURCE_SEC;
   m_docname           = nm;
@@ -252,8 +252,6 @@ FileDefImpl::~FileDefImpl()
   delete m_includeList;
   delete m_includedByDict;
   delete m_includedByList;
-  delete m_srcDefDict;
-  delete m_srcMemberDict;
 }
 
 void FileDefImpl::setDiskName(const QCString &name)
@@ -297,13 +295,11 @@ void FileDefImpl::findSectionsInDocumentation()
     mg->findSectionsInDocumentation(this);
   }
 
-  QListIterator<MemberList> mli(m_memberLists);
-  MemberList *ml;
-  for (mli.toFirst();(ml=mli.current());++mli)
+  for (auto &ml : m_memberLists)
   {
-    if (ml->listType()&MemberListType_declarationLists)
+    if (ml.listType()&MemberListType_declarationLists)
     {
-      ml->findSectionsInDocumentation(this);
+      ml.findSectionsInDocumentation(this);
     }
   }
 }
@@ -1045,13 +1041,11 @@ void FileDefImpl::writeMemberPages(OutputList &ol)
   ol.pushGeneratorState();
   ol.disableAllBut(OutputGenerator::Html);
 
-  QListIterator<MemberList> mli(m_memberLists);
-  MemberList *ml;
-  for (mli.toFirst();(ml=mli.current());++mli)
+  for (const auto &ml : m_memberLists)
   {
-    if (ml->listType()&MemberListType_documentationLists)
+    if (ml.listType()&MemberListType_documentationLists)
     {
-      ml->writeDocumentationPage(ol,name(),this);
+      ml.writeDocumentationPage(ol,name(),this);
     }
   }
 
@@ -1244,13 +1238,11 @@ void FileDefImpl::parseSource(ClangTUParser *clangParser)
 
 void FileDefImpl::addMembersToMemberGroup()
 {
-  QListIterator<MemberList> mli(m_memberLists);
-  MemberList *ml;
-  for (mli.toFirst();(ml=mli.current());++mli)
+  for (auto &ml : m_memberLists)
   {
-    if (ml->listType()&MemberListType_declarationLists)
+    if (ml.listType()&MemberListType_declarationLists)
     {
-      ::addMembersToMemberGroup(ml,&m_memberGroups,this);
+      ::addMembersToMemberGroup(&ml,&m_memberGroups,this);
     }
   }
 
@@ -1279,8 +1271,8 @@ void FileDefImpl::insertMember(MemberDef *md)
 
   if (allMemberList==0)
   {
-    allMemberList = new MemberList(MemberListType_allMembersList);
-    m_memberLists.append(allMemberList);
+    m_memberLists.emplace_back(MemberListType_allMembersList);
+    allMemberList = &m_memberLists.back();
   }
   allMemberList->append(md);
   //::addFileMemberNameToIndex(md);
@@ -1368,40 +1360,30 @@ QCString FileDefImpl::name() const
     return DefinitionMixin::name();
 }
 
-void FileDefImpl::addSourceRef(int line,Definition *d,MemberDef *md)
+void FileDefImpl::addSourceRef(int line,const Definition *d,const MemberDef *md)
 {
   //printf("FileDefImpl::addSourceDef(%d,%p,%p)\n",line,d,md);
   if (d)
   {
-    if (m_srcDefDict==0)    m_srcDefDict    = new QIntDict<Definition>(257);
-    if (m_srcMemberDict==0) m_srcMemberDict = new QIntDict<MemberDef>(257);
-    m_srcDefDict->insert(line,d);
-    if (md) m_srcMemberDict->insert(line,md);
+    m_srcDefMap.insert(std::make_pair(line,d));
+    if (md) m_srcMemberMap.insert(std::make_pair(line,md));
     //printf("Adding member %s with anchor %s at line %d to file %s\n",
     //    md?md->name().data():"<none>",md?md->anchor().data():"<none>",line,name().data());
   }
 }
 
-Definition *FileDefImpl::getSourceDefinition(int lineNr) const
+const Definition *FileDefImpl::getSourceDefinition(int lineNr) const
 {
-  Definition *result=0;
-  if (m_srcDefDict)
-  {
-    result = m_srcDefDict->find(lineNr);
-  }
-  //printf("%s::getSourceDefinition(%d)=%s\n",name().data(),lineNr,result?result->name().data():"none");
-  return result;
+  auto it = m_srcDefMap.find(lineNr);
+  //printf("%s::getSourceDefinition(%d)=%s\n",name().data(),lineNr,it!=m_srcDefMap.end()?it->second->name().data():"none");
+  return it!=m_srcDefMap.end() ? it->second : 0;
 }
 
-MemberDef *FileDefImpl::getSourceMember(int lineNr) const
+const MemberDef *FileDefImpl::getSourceMember(int lineNr) const
 {
-  MemberDef *result=0;
-  if (m_srcMemberDict)
-  {
-    result = m_srcMemberDict->find(lineNr);
-  }
-  //printf("%s::getSourceMember(%d)=%s\n",name().data(),lineNr,result?result->name().data():"none");
-  return result;
+  auto it = m_srcMemberMap.find(lineNr);
+  //printf("%s::getSourceMember(%d)=%s\n",name().data(),lineNr,it!=m_srcMemberMap.end()?it->second->name().data():"none");
+  return it!=m_srcMemberMap.end() ? it->second : 0;
 }
 
 
@@ -1551,13 +1533,11 @@ void FileDefImpl::addListReferences()
   {
     mg->addListReferences(this);
   }
-  QListIterator<MemberList> mli(m_memberLists);
-  MemberList *ml;
-  for (mli.toFirst();(ml=mli.current());++mli)
+  for (auto &ml : m_memberLists)
   {
-    if (ml->listType()&MemberListType_documentationLists)
+    if (ml.listType()&MemberListType_documentationLists)
     {
-      ml->addListReferences(this);
+      ml.addListReferences(this);
     }
   }
 }
@@ -1897,54 +1877,34 @@ QCString FileDefImpl::includeName() const
   return getSourceFileBase();
 }
 
-MemberList *FileDefImpl::createMemberList(MemberListType lt)
-{
-  m_memberLists.setAutoDelete(TRUE);
-  QListIterator<MemberList> mli(m_memberLists);
-  MemberList *ml;
-  for (mli.toFirst();(ml=mli.current());++mli)
-  {
-    if (ml->listType()==lt)
-    {
-      return ml;
-    }
-  }
-  // not found, create a new member list
-  ml = new MemberList(lt);
-  m_memberLists.append(ml);
-  return ml;
-}
-
 void FileDefImpl::addMemberToList(MemberListType lt,MemberDef *md)
 {
   static bool sortBriefDocs = Config_getBool(SORT_BRIEF_DOCS);
   static bool sortMemberDocs = Config_getBool(SORT_MEMBER_DOCS);
-  MemberList *ml = createMemberList(lt);
-  ml->setNeedsSorting(
-       ((ml->listType()&MemberListType_declarationLists) && sortBriefDocs) ||
-       ((ml->listType()&MemberListType_documentationLists) && sortMemberDocs));
-  ml->append(md);
+  MemberList &ml = m_memberLists.get(lt);
+  ml.setNeedsSorting(
+       ((ml.listType()&MemberListType_declarationLists) && sortBriefDocs) ||
+       ((ml.listType()&MemberListType_documentationLists) && sortMemberDocs));
+  ml.append(md);
   if (lt&MemberListType_documentationLists)
   {
-    ml->setInFile(TRUE);
+    ml.setInFile(TRUE);
   }
-  if (ml->listType()&MemberListType_declarationLists)
+  if (ml.listType()&MemberListType_declarationLists)
   {
     MemberDefMutable *mdm = toMemberDefMutable(md);
     if (mdm)
     {
-      mdm->setSectionList(this,ml);
+      mdm->setSectionList(this,&ml);
     }
   }
 }
 
 void FileDefImpl::sortMemberLists()
 {
-  QListIterator<MemberList> mli(m_memberLists);
-  MemberList *ml;
-  for (;(ml=mli.current());++mli)
+  for (auto &ml : m_memberLists)
   {
-    if (ml->needsSorting()) { ml->sort(); ml->setNeedsSorting(FALSE); }
+    if (ml.needsSorting()) { ml.sort(); ml.setNeedsSorting(FALSE); }
   }
 
   for (const auto &mg : m_memberGroups)
@@ -1978,13 +1938,11 @@ void FileDefImpl::sortMemberLists()
 
 MemberList *FileDefImpl::getMemberList(MemberListType lt) const
 {
-  QListIterator<MemberList> mli(m_memberLists);
-  MemberList *ml;
-  for (;(ml=mli.current());++mli)
+  for (auto &ml : m_memberLists)
   {
-    if (ml->listType()==lt)
+    if (ml.listType()==lt)
     {
-      return ml;
+      return const_cast<MemberList*>(&ml);
     }
   }
   return 0;
@@ -2069,12 +2027,10 @@ QCString FileDefImpl::includedByDependencyGraphFileName() const
 
 void FileDefImpl::countMembers()
 {
-  QListIterator<MemberList> mli(m_memberLists);
-  MemberList *ml;
-  for (mli.toFirst();(ml=mli.current());++mli)
+  for (auto &ml : m_memberLists)
   {
-    ml->countDecMembers();
-    ml->countDocMembers();
+    ml.countDecMembers();
+    ml.countDocMembers();
   }
   for (const auto &mg : m_memberGroups)
   {
