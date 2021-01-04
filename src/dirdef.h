@@ -101,7 +101,7 @@ class UsedDir
     FilePairDict m_filePairs;
 
     /**
-     * @defgroup InheritanceMarkers Markers for directory dependency inheritance
+     * @name Markers for directory dependency inheritance
      *
      * These markers are required for evaluation, if a dependency between directories
      * shall be drawn at a certain level within the directory dependency graph.
@@ -121,14 +121,13 @@ class UsedDir
      *
      * As it is sufficient to know if a combination exists in one of the file pairs,
      * that information is accumulated when adding file dependencies.
-     *
-     * @{
      */
+    ///@{
     bool m_SODO; //!< dependency is neither inherited by dependent nor by dependee
     bool m_SODI; //!< dependency is not inherited by dependent but by dependee
     bool m_SIDO; //!< dependency is inherited by dependent but not by dependee
     bool m_SIDI; //!< dependency is inherited by dependent and by dependee
-    /**@}*/
+    ///@}
 };
 
 // ------------------
