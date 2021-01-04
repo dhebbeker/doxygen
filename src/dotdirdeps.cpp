@@ -13,45 +13,6 @@
 *
 */
 
-/**
- * @file
- * @internal
-
-Designing Directory Dependency Graphs
-=====================================
-
-terms
------
-
-- **ancestors** are all parents / sup-directories (*recursively*) of a directory
-- **successors** are all children / sub-directories (*recursively*) of a directory
-- **[dependee](https://en.wiktionary.org/wiki/dependee#Noun)** is a directory which is depended upon
-
-
-limits
-------
-
-In order to limit the complexity of the drawn graphs, the following limits are introduced:
-
-- MAX_DOT_GRAPH_SUCCESSOR: Maximum number of successor levels drawn.
-
-The successor depth limits applied to the successors of the original directory relative to the original
-directory level.
-
-If a dependee is not part of the original directory tree (ODT), then it is drawn beginning
-with the first directory, which is not part of the path which goes from the original directory to the
-[input directories to doxygen](https://www.doxygen.nl/manual/config.html#cfg_input) (not respecting limits).
-
-This dependee (which is not part of the ODT) is not recursed into. And no dependencies *from* that dependee
-will be analyzed.
-
-As an extension one could allow an order *n* of neighbor trees to be drawn. That is trees, which do not share
-a common parent with the original directory. The successor depth limit is then applied to the neighbor trees
-is relative to its root level. Also dependencies from that neighbor tree will be analyzed and drawn.
-
- * @endinternal
- */
-
 #include <algorithm>
 #include <iterator>
 #include <tuple>
@@ -74,14 +35,15 @@ struct DotDirProperty
 
 /** Elements consist of (1) directory relation and (2) whether it is pointing only to inherited dependees. */
 typedef std::vector<std::tuple<const DirRelation*, bool>> DirRelations;
-typedef decltype(std::declval<DirDef>().level()) DirectoryLevel;
+typedef decltype(std::declval<DirDef>().level()) DirectoryLevel; //!< Integer for directory level.
 
-/** @return a DOT color name according to the directory depth. */
+/** Returns a DOT color name according to the directory depth. */
 static QCString getDirectoryBackgroundColor(const DirectoryLevel depthIndex)
 {
   return "/pastel19/" + QCString().setNum(depthIndex % 9 + 1);
 }
 
+/** Returns a DOT color name according to the directory properties. */
 static const char* getDirectoryBorderColor(const DotDirProperty &property)
 {
   if (property.isTruncated && property.isOrphaned)
@@ -102,6 +64,7 @@ static const char* getDirectoryBorderColor(const DotDirProperty &property)
   }
 }
 
+/** Returns a DOT node style according to the directory properties. */
 static std::string getDirectoryBorderStyle(const DotDirProperty &property)
 {
   std::string style;
@@ -141,6 +104,7 @@ static void drawDirectory(FTextStream &outStream, const DirDef *const directory,
   directoriesInGraph.insert(directory->getOutputFileBase(), directory);
 }
 
+/** Checks, if the directory is a the maximum drawn directory level. */
 static bool isAtLowerVisibilityBorder(const DirDef *const directory, const DirectoryLevel startLevel)
 {
   return (directory->level() - startLevel) == Config_getInt(MAX_DOT_GRAPH_SUCCESSOR);
@@ -179,6 +143,12 @@ static void openCluster(FTextStream &outputStream, const DirDef *const directory
   }
 }
 
+/**
+ * Assembles a list of the directory relations and if they result from inheritance.
+ * @param dependent is the source of the dependency
+ * @param isLeaf true, if no successors are drawn for this directory
+ * @return list of directory relations
+ */
 static auto getDependencies(const DirDef *const dependent, const bool isLeaf)
 {
   DirRelations dependencies;
@@ -243,6 +213,20 @@ static DirRelations drawTree(FTextStream &outputStream, const DirDef *const dire
   return dependencies;
 }
 
+/**
+ * Write DOT code for directory dependency graph.
+ *
+ * Code is generated for a directory. Successors (sub-directories) of this directory are recursively drawn.
+ * Recursion is limited by `MAX_DOT_GRAPH_SUCCESSOR`. The dependencies of those directories
+ * are drawn.
+ *
+ * If a dependee is not part of directory tree above, then the dependency is drawn to the first parent of the
+ * dependee, whose parent is an ancestor (sub-directory) of the original directory.
+ *
+ * @param t stream where the DOT code is written to
+ * @param dd directory for which the graph is generated for
+ * @param linkRelations if true, hyperlinks to the list of file dependencies are added
+ */
 void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 {
   QDict<DirDef> dirsInGraph(257);
