@@ -116,7 +116,7 @@ static bool isAtLowerVisibilityBorder(const DirDef *const directory, const Direc
  * Ancestor clusters directly get a label. Other clusters get a plain text node with a label instead.
  * This is because the plain text node can be used to draw dependency relationships.
  */
-static void openCluster(FTextStream &outputStream, const DirDef *const directory,
+static void drawClusterOpening(FTextStream &outputStream, const DirDef *const directory,
     const DotDirProperty &directoryProperty, QDict<DirDef> &directoriesInGraph, const bool isAncestor)
 {
   outputStream << "  subgraph cluster" << directory->getOutputFileBase() << " {\n"
@@ -171,6 +171,7 @@ static auto getDependencies(const DirDef *const dependent, const bool isLeaf)
   return dependencies;
 }
 
+/** Recursively draws directory tree. */
 static DirRelations drawTree(FTextStream &outputStream, const DirDef *const directory,
     const DirectoryLevel startLevel, QDict<DirDef> &directoriesInGraph, const bool isTreeRoot)
 {
@@ -195,7 +196,7 @@ static DirRelations drawTree(FTextStream &outputStream, const DirDef *const dire
     {
       {  // open cluster
         const DotDirProperty directoryProperty = { false, false, false, isTreeRoot, false };
-        openCluster(outputStream, directory, directoryProperty, directoriesInGraph, false);
+        drawClusterOpening(outputStream, directory, directoryProperty, directoriesInGraph, false);
         const auto deps = getDependencies(directory, false);
         dependencies.insert(std::end(dependencies), std::begin(deps), std::end(deps));
       }
@@ -243,7 +244,7 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
   if (parent)
   {
     const DotDirProperty parentDirProperty = {true, parent->parent()!=nullptr, false, false, false};
-    openCluster(t, parent, parentDirProperty, dirsInGraph, true);
+    drawClusterOpening(t, parent, parentDirProperty, dirsInGraph, true);
 
     {
       // draw all directories which have `dd->parent()` as parent and `dd` as dependent
