@@ -23,7 +23,6 @@ Designing Directory Dependency Graphs
 terms
 -----
 
-- **original node** (ON) is the directory for which the directory dependency graph is drawn
 - **ancestors** are all parents / sup-directories (*recursively*) of a directory
 - **successors** are all children / sub-directories (*recursively*) of a directory
 - **[dependee](https://en.wiktionary.org/wiki/dependee#Noun)** is a directory which is depended upon
@@ -49,25 +48,6 @@ will be analyzed.
 As an extension one could allow an order *n* of neighbor trees to be drawn. That is trees, which do not share
 a common parent with the original directory. The successor depth limit is then applied to the neighbor trees
 is relative to its root level. Also dependencies from that neighbor tree will be analyzed and drawn.
-
-Recursive approach
-==================
-
- 1. find root of the original directory tree (ODT). This would be the original directory, if the ancestor
-    limit is set to 0.
- 2. draw the ODT
- 3. draw all dependency relations. Put those dependees of the dependencies in a list (orphans), which have
-    not been drawn until now.
- 4. repeat the procedure for each orphan, but check if the orphan has been drawn yet.
-
- - while repeating the procedure, shall the new dependency relations also be checked? This could lead to
-   neighboring trees of higher order
- - and while drawing neighbor trees: shall only those directories be drawn, which are in a path from the tree
-   root the the dependee? The information, whether a directory in in such a path is easy to note while
-   searching for the tree root
-
-This approach has the benefit, that the natural structure of the data is used. In contrast to the current implementation this does not pass the directories of a tree repeatedly. With the exception when searching for the tree root.
-
 
  * @endinternal
  */
@@ -333,7 +313,6 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 
   // add nodes for other used directories
   {
-    //printf("*** For dir %s\n",shortName().data());
     const auto newEnd =
         std::stable_partition(usedDirsNotDrawn.begin(), usedDirsNotDrawn.end(), [&](const DirDef *const usedDir)
 	        // for each used dir (=directly used or a parent of a directly used dir)
@@ -341,13 +320,6 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
           const DirDef *dir=dd;
           while (dir)
           {
-            //printf("*** check relation %s->%s same_parent=%d !%s->isParentOf(%s)=%d\n",
-            //    dir->shortName().data(),usedDir->shortName().data(),
-            //    dir->parent()==usedDir->parent(),
-            //    usedDir->shortName().data(),
-            //    shortName().data(),
-            //    !usedDir->isParentOf(this)
-            //    );
             if (dir!=usedDir && dir->parent()==usedDir->parent())
             // include if both have the same parent (or no parent)
             {
