@@ -74,7 +74,6 @@ This approach has the benefit, that the natural structure of the data is used. I
  */
 
 #include <algorithm>
-#include <map>
 #include <iterator>
 #include <tuple>
 #include "dotdirdeps.h"
@@ -83,7 +82,6 @@ This approach has the benefit, that the natural structure of the data is used. I
 #include "util.h"
 #include "doxygen.h"
 #include "config.h"
-#include "container_utils.hpp"
 
 /**
  * The properties are used to format the directories in the graph distinctively.
