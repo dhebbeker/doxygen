@@ -198,7 +198,7 @@ static bool isAtLowerVisibilityBorder(const DirDef * const directory, const Dire
  * This is because the plain text node can be used to draw dependency relationships.
  */
 static void openCluster(FTextStream &outputStream, const DirDef *const directory,
-    const DotDirProperty &directoryProperty, QDict<DirDef> &directoriesInGraph, const bool isAncestor = false)
+    const DotDirProperty &directoryProperty, QDict<DirDef> &directoriesInGraph, const bool isAncestor)
 {
   outputStream << "  subgraph cluster" << directory->getOutputFileBase() << " {\n"
       "    graph [ "
@@ -224,10 +224,9 @@ static void openCluster(FTextStream &outputStream, const DirDef *const directory
   }
 }
 
-static auto getDependencies(const DirDef *const dependent, const bool isLeaf = true)
+static auto getDependencies(const DirDef *const dependent, const bool isLeaf)
 {
   DirRelations dependencies;
-  // check all dependencies of the subtree itself
   for (const auto &usedDirectory : dependent->usedDirs())
   {
     const auto dependee = usedDirectory->dir();
@@ -248,14 +247,14 @@ static auto getDependencies(const DirDef *const dependent, const bool isLeaf = t
 }
 
 static DirRelations drawTree(FTextStream &outputStream, const DirDef* const directory,
-    const DirectoryLevel startLevel, QDict<DirDef> &directoriesInGraph, const bool isTreeRoot = true)
+    const DirectoryLevel startLevel, QDict<DirDef> &directoriesInGraph, const bool isTreeRoot)
 {
   DirRelations dependencies;
   if (!directory->isCluster())
   {
     const DotDirProperty directoryProperty = { false, false, false, isTreeRoot, false };
     drawDirectory(outputStream, directory, directoryProperty, directoriesInGraph);
-    const auto deps = getDependencies(directory);
+    const auto deps = getDependencies(directory, true);
     dependencies.insert(std::end(dependencies), std::begin(deps), std::end(deps));
   }
   else
@@ -264,7 +263,7 @@ static DirRelations drawTree(FTextStream &outputStream, const DirDef* const dire
     {
       const DotDirProperty directoryProperty = { false, false, true, isTreeRoot, false };
       drawDirectory(outputStream, directory, directoryProperty, directoriesInGraph);
-      const auto deps = getDependencies(directory);
+      const auto deps = getDependencies(directory, true);
       dependencies.insert(std::end(dependencies), std::begin(deps), std::end(deps));
     }
     else
