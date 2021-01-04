@@ -101,7 +101,7 @@ class UsedDir
     FilePairDict m_filePairs;
 
     /**
-     * \defgroup InheritanceMarkers Markers for directory dependency inheritance
+     * @defgroup InheritanceMarkers Markers for directory dependency inheritance
      *
      * These markers are required for evaluation, if a dependency between directories
      * shall be drawn at a certain level within the directory dependency graph.

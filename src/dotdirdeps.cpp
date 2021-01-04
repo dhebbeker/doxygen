@@ -62,38 +62,14 @@ is relative to its root level. Also dependencies from that neighbor tree will be
 #include "doxygen.h"
 #include "config.h"
 
-/**
- * The properties are used to format the directories in the graph distinctively.
- */
+/** Properties are used to format the directories in the graph distinctively. */
 struct DotDirProperty
 {
-  /**
-   * Signifies that some of the successors may not be drawn. This is the case, for directories for neighbor trees
-   * for which at least one successor is drawn.
-   */
-  bool isIncomplete = false;
-
-  /**
-   * Signifies that the directory has ancestors which are not drawn because they would exceed the limit.
-   */
-  bool isOrphaned = false;
-
-  /**
-   * Signifies that the directory has successors which are not drawn because they would exceed the limit set
-   * by MAX_DOT_GRAPH_SUCCESSOR.
-   */
-  bool isTruncated = false;
-
-  /**
-   * Is only true for the directory for which the graph is drawn.
-   */
-  bool isOriginal = false;
-
-  /**
-   * Is true if the directory is alone outside the original directory tree.
-   * Neither a parent not any successor directories are drawn.
-   */
-  bool isPeriperal = false;
+  bool isIncomplete = false; //!< true if not all successor of a cluster are drawn
+  bool isOrphaned = false; //!< true if parent is not drawn
+  bool isTruncated = false; //!< true has successors, none is drawn
+  bool isOriginal = false; //!< true if is the directory for which the graph is drawn
+  bool isPeriperal = false; //!< true if no successor of parent of original directory
 };
 
 /** Elements consist of (1) directory relation and (2) whether it is pointing only to inherited dependees. */
