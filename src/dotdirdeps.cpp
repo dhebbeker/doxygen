@@ -35,7 +35,6 @@ limits
 In order to limit the complexity of the drawn graphs, the following limits are introduced:
 
 - MAX_DOT_GRAPH_SUCCESSOR: Maximum number of successor levels drawn.
-- MAX_DOT_GRAPH_ANCESTOR: Maximum number of ancestor levels drawn.
 
 The successor depth limits applied to the successors of the original directory relative to the original
 directory level.
@@ -95,8 +94,7 @@ struct DotDirProperty
   bool isIncomplete = false;
 
   /**
-   * Signifies that the directory has ancestors which are not drawn because they would exceed the limit set
-   * by MAX_DOT_GRAPH_ANCESTOR.
+   * Signifies that the directory has ancestors which are not drawn because they would exceed the limit.
    */
   bool isOrphaned = false;
 
