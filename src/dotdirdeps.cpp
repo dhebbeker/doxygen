@@ -130,123 +130,6 @@ static QCString getDirectoryBackgroundColor(const DirectoryLevel depthIndex)
   return "/pastel19/" + QCString().setNum(depthIndex % 9 + 1);
 }
 
-/**
- * Determine recursively children and *do not* respect limits.
- * @param nextLevelSuccessors list of successors which are recursively added to the list
- * @return list of all successors
- */
-static DirList getSuccessors(const DirList &nextLevelSuccessors)
-{
-  DirList successors;
-  for (const auto successor : nextLevelSuccessors)
-  {
-    successors.push_back(successor);
-    successors = concatLists(successors, getSuccessors(successor->subDirs()));
-  }
-  return successors;
-}
-
-/**
- * ### dependees(x)
- For each dependency of x, all dependees and *do not* respect limits.
- Add each node only once.
-
- **[dependee](https://en.wiktionary.org/wiki/dependee#Noun)** is a directory which is depended upon
- *
- * @param dependents (dependers which depend on the dependees)
- * @return
- */
-static auto getDependees(const DirList &dependents, const DirectoryLevel minLevel)
-{
-  DirList dependees;
-  for (const auto dependent : dependents)
-  {
-    for(const auto& usedDirectory : dependent->usedDirs())
-    {
-      if (usedDirectory->dir()->level() >= minLevel)
-      {
-        dependees.push_back(usedDirectory->dir());
-      }
-    }
-  }
-  // there is the possibility that dependents target the same dependees
-  return removeDuplicates(dependees);
-}
-
-/*
-static auto walkToTreeRoot(const DirDef* const directory, const DirectoryLevel startLevel, PropertyMap& directoryProperties)
-{
-  const auto parent = directory->parent();
-  if(nullptr == parent || parent->level() < startLevel - Config_getInt(MAX_DOT_GRAPH_ANCESTOR))
-  {
-    return directory;
-  }
-  else
-  {
-    directoryProperties[directory].isIncomplete = true;
-    return walkToTreeRoot(parent, startLevel, directoryProperties);
-  }
-}
-*/
-
-/**
- * Puts only the elder into the list.
- ### Ancestor(x)
- 1. if x in ancestor list, return; else
- 2. mark x as "incomplete" (properties list)
- 3. if parent of x would exceed limit mark as "orphaned"; put x to ancestor list and return; else
- 4. if x has no parent; put x to ancestor list and return; else
- 5. Ancestor(p)
- */
-/*
-static void getTreeRootsLimited(const DirDef &basedOnDirectory, const DirList &originalDirectoryTree,
-    DirList &ancestors, PropertyMap &directoryProperties, const DirectoryLevel startLevel)
-{
-  if (std::find(ancestors.begin(), ancestors.end(), &basedOnDirectory) == ancestors.end())
-  {
-    if (std::find(originalDirectoryTree.begin(), originalDirectoryTree.end(), &basedOnDirectory)
-        == originalDirectoryTree.end())
-    {  // the directory is not part of the tree starting at the original directory
-      directoryProperties[&basedOnDirectory].isIncomplete = true;
-    }
-    if (basedOnDirectory.parent() == nullptr)
-    {  // the directory has no further parents
-      ancestors.push_back(&basedOnDirectory);
-    }
-    else if (startLevel - basedOnDirectory.parent()->level() > Config_getInt(MAX_DOT_GRAPH_ANCESTOR))
-    {  // the parent directory is too far up
-      directoryProperties[&basedOnDirectory].isOrphaned = true;
-      ancestors.push_back(&basedOnDirectory);
-    }
-    else
-    {  // the parent directory is further investigated
-      getTreeRootsLimited(
-                          *(basedOnDirectory.parent()),
-                          originalDirectoryTree,
-                          ancestors,
-                          directoryProperties,
-                          startLevel);
-    }
-  }
-}
-
-static DirList getTreeRootsLimited(const DirList &basedOnDirectories,
-    const DirList &originalDirectoryTree, PropertyMap &directoryProperties,
-    const DirectoryLevel startLevel)
-{
-  DirList ancestorList;
-  for (const auto basedOnDirectory : basedOnDirectories)
-  {
-    getTreeRootsLimited(
-                        *basedOnDirectory,
-                        originalDirectoryTree,
-                        ancestorList,
-                        directoryProperties,
-                        startLevel);
-  }
-  return ancestorList;
-}
-*/
 static const char* getDirectoryBorderColor(const DotDirProperty &property)
 {
   if (property.isTruncated && property.isOrphaned)
@@ -366,18 +249,6 @@ static auto getDependencies(const DirDef *const dependent, const bool isLeaf = t
   return dependencies;
 }
 
-/**
- * ### draw_limited(x)
- - if x is parent:
-     - if children within limit `max_successor_depth`
-       1. open cluster
-       2. for each child: draw_limited(child)
-       3. close cluster
-     - else
-      - draw_directory(properties + "truncated")
- - else
-   1. draw_directory(properties)
- */
 static DirRelations drawTree(FTextStream &outputStream, const DirDef* const directory,
     const DirectoryLevel startLevel, QDict<DirDef> &directoriesInGraph, const bool isTreeRoot = true)
 {
@@ -420,66 +291,6 @@ static DirRelations drawTree(FTextStream &outputStream, const DirDef* const dire
   return dependencies;
 }
 
-/**
- *
- can only be determined, when the complete and not truncated set of nodes is known.
- determines all dependencies within a set, respecting the limits
-
- * @param outputStream
- * @param listOfDependencies
- * @param linkRelations
- */
-/*
-static DirRelations getDirRelations(const DirList &allNonAncestorDirectories,
-    const DirectoryLevel startLevel)
-{
-  /// @todo check that all ancestors are given in the list
-  DirRelations relations;
-  for (const auto dependent : allNonAncestorDirectories)
-  {
-    if ((dependent->level() - startLevel) <= Config_getInt(MAX_DOT_GRAPH_SUCCESSOR)) // is visible
-    {
-      // check all dependencies of the subtree itself
-      for(const auto& usedDirectory : dependent->usedDirs())
-      {
-        const auto dependee = usedDirectory->dir();
-        if (((dependee->level() - startLevel) <= Config_getInt(MAX_DOT_GRAPH_SUCCESSOR)) // is visible
-        && (!usedDirectory->isDependencyInherited() || isAtLowerVisibilityBorder(*dependent, startLevel))
-            && (!usedDirectory->isParentOfTheDependee() || isAtLowerVisibilityBorder(*dependee, startLevel)))
-        {
-          QCString relationName;
-          relationName.sprintf("dir_%06d_%06d", dependent->dirCount(), dependee->dirCount());
-          auto dependency = Doxygen::dirRelations.find(relationName);
-          if (dependency == nullptr)
-          {
-            dependency = new DirRelation(relationName, dependent, usedDirectory.get());
-            Doxygen::dirRelations.append(relationName, dependency);
-          }
-          relations.push_back(dependency);
-        }
-      }
-    }
-  }
-  return removeDuplicates(relations);
-}
-
-static void drawRelations(FTextStream &outputStream, const DirRelations &listOfRelations,
-    const bool linkRelations)
-{
-  for (const auto relation : listOfRelations)
-  {
-    const auto destination = relation->destination();
-    outputStream << "  " << relation->source()->getOutputFileBase() << "->"
-        << destination->dir()->getOutputFileBase() << " [headlabel=\"" << destination->filePairs().count()
-        << "\", labeldistance=1.5";
-    if (linkRelations)
-    {
-      outputStream << " headhref=\"" << relation->getOutputFileBase() << Doxygen::htmlFileExtension << "\"";
-    }
-    outputStream << "];\n";
-  }
-}
-*/
 void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 {
   QDict<DirDef> dirsInGraph(257);
