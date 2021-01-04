@@ -124,29 +124,10 @@ struct DotDirProperty
 typedef std::vector<std::tuple<const DirRelation*, bool>> DirRelations;
 typedef decltype(std::declval<DirDef>().level()) DirectoryLevel;
 
-/**
- * returns a DOT color name according to the directory depth
- * @param depthIndex any number
- * @return
- *
- * @internal
- * Ideally one would deduce a optimal color from both:
- *
- *  - the current directory depth and
- *  - the maximum directory depth which will be drawn in the graph
- *
- * This requires to know the maximum directory depth, which will be draw.
- *
- * A simpler method is to sequence through a altering color scheme.
- *
- * @endinternal
- */
-static QCString getDirectoryBackgroundColorCode(const std::size_t depthIndex)
+/** @return a DOT color name according to the directory depth. */
+static QCString getDirectoryBackgroundColor(const DirectoryLevel depthIndex)
 {
-  constexpr auto colorSchemeName = "/pastel19/";
-  constexpr ulong numberOfColorsInScheme = 9;
-  const auto colorIndex = QCString().setNum(static_cast<ulong>((depthIndex % numberOfColorsInScheme) + 1));
-  return colorSchemeName + colorIndex;
+  return "/pastel19/" + QCString().setNum(depthIndex % 9 + 1);
 }
 
 /**
@@ -317,7 +298,7 @@ static void drawDirectory(FTextStream &outStream, const DirDef *const directory,
       "shape=box, "
       "label=\"" << directory->shortName() << "\", "
       "style=\"" << getDirectoryBorderStyle(property) << "\", "
-      "fillcolor=\"" << getDirectoryBackgroundColorCode(directory->level()) << "\", "
+      "fillcolor=\"" << getDirectoryBackgroundColor(directory->level()) << "\", "
       "color=\"" << getDirectoryBorderColor(property) << "\", "
       "URL=\"" << directory->getOutputFileBase() << Doxygen::htmlFileExtension << "\""
       "];\n";
@@ -340,7 +321,7 @@ static void openCluster(FTextStream &outputStream, const DirDef *const directory
 {
   outputStream << "  subgraph cluster" << directory->getOutputFileBase() << " {\n"
       "    graph [ "
-      "bgcolor=\"" << getDirectoryBackgroundColorCode(directory->level()) << "\", "
+      "bgcolor=\"" << getDirectoryBackgroundColor(directory->level()) << "\", "
       "pencolor=\"" << getDirectoryBorderColor(directoryProperty) << "\", "
       "style=\"" << getDirectoryBorderStyle(directoryProperty) << "\", "
       "label=\"";
