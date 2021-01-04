@@ -151,7 +151,8 @@ static const char* getDirectoryBorderColor(const DotDirProperty &property)
 static std::string getDirectoryBorderStyle(const DotDirProperty &property)
 {
   std::string style;
-  if(!property.isPeriperal){
+  if (!property.isPeriperal)
+  {
     style += "filled,";
   }
   if (property.isOriginal)
@@ -186,7 +187,7 @@ static void drawDirectory(FTextStream &outStream, const DirDef *const directory,
   directoriesInGraph.insert(directory->getOutputFileBase(), directory);
 }
 
-static bool isAtLowerVisibilityBorder(const DirDef * const directory, const DirectoryLevel startLevel)
+static bool isAtLowerVisibilityBorder(const DirDef *const directory, const DirectoryLevel startLevel)
 {
   return (directory->level() - startLevel) == Config_getInt(MAX_DOT_GRAPH_SUCCESSOR);
 }
@@ -246,7 +247,7 @@ static auto getDependencies(const DirDef *const dependent, const bool isLeaf)
   return dependencies;
 }
 
-static DirRelations drawTree(FTextStream &outputStream, const DirDef* const directory,
+static DirRelations drawTree(FTextStream &outputStream, const DirDef *const directory,
     const DirectoryLevel startLevel, QDict<DirDef> &directoriesInGraph, const bool isTreeRoot)
 {
   DirRelations dependencies;
