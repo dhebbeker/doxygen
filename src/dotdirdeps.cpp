@@ -76,6 +76,7 @@ This approach has the benefit, that the natural structure of the data is used. I
 #include <algorithm>
 #include <map>
 #include <iterator>
+#include <tuple>
 #include "dotdirdeps.h"
 
 #include "ftextstream.h"
@@ -119,17 +120,8 @@ struct DotDirProperty
   bool isPeriperal = false;
 };
 
-struct LocalDirRelation
-{
-  LocalDirRelation(const DirRelation *const dirRelation, const bool isPointingOnlyToInheritedDependees) :
-      m_dirRelation(dirRelation), m_isPointingOnlyToInheritedDependees(isPointingOnlyToInheritedDependees)
-  {
-  }
-  const DirRelation *m_dirRelation;
-  bool m_isPointingOnlyToInheritedDependees;
-};
-
-typedef std::vector<LocalDirRelation> DirRelations;
+/** Elements consist of (1) directory relation and (2) whether it is pointing only to inherited dependees. */
+typedef std::vector<std::tuple<const DirRelation*, bool>> DirRelations;
 typedef decltype(std::declval<DirDef>().level()) DirectoryLevel;
 
 /**
@@ -586,20 +578,21 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 
 
   // add relations between all selected directories
-  for (const auto relation : dependencies)
+  for (const auto relationTuple : dependencies)
   {
-    const auto udir = relation.m_dirRelation->destination();
+    const auto relation = std::get<0>(relationTuple);
+    const auto udir = relation->destination();
     const auto usedDir = udir->dir();
 
     const bool destIsSibling = std::find(std::begin(usedDirsDrawn), std::end(usedDirsDrawn), usedDir) != std::end(usedDirsDrawn);
     const bool destIsDrawn = dirsInGraph.find(usedDir->getOutputFileBase()) != nullptr;
-    const bool notInherited = !relation.m_isPointingOnlyToInheritedDependees;
+    const bool notInherited = !std::get<1>(relationTuple);
     const bool atVisibilityLimit = isAtLowerVisibilityBorder(usedDir, dd->level());
 
     if(destIsSibling || (destIsDrawn && (notInherited || atVisibilityLimit)))
     {
-      const auto relationName = relation.m_dirRelation->getOutputFileBase();
-      const auto dir = relation.m_dirRelation->source();
+      const auto relationName = relation->getOutputFileBase();
+      const auto dir = relation->source();
       int nrefs = udir->filePairs().count();
       t << "  " << dir->getOutputFileBase() << "->"
         << usedDir->getOutputFileBase();
