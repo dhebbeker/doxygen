@@ -155,7 +155,7 @@ static auto getDependencies(const DirDef *const dependent, const bool isLeaf)
   for (const auto &usedDirectory : dependent->usedDirs())
   {
     const auto dependee = usedDirectory->dir();
-    if (isLeaf || !usedDirectory->isAllDependentsInherited())
+    if (!dependee->isParentOf(dependent) && (isLeaf || !usedDirectory->isAllDependentsInherited()))
     {
       QCString relationName;
       relationName.sprintf("dir_%06d_%06d", dependent->dirCount(), dependee->dirCount());
