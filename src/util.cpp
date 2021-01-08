@@ -1072,7 +1072,7 @@ void linkifyText(const TextGeneratorIntf &out, const Definition *scope,
 
 void writeExamples(OutputList &ol,const ExampleList &list)
 {
-  QCString exampleLine=theTranslator->trWriteList(list.size());
+  QCString exampleLine=theTranslator->trWriteList((int)list.size());
 
   //bool latexEnabled = ol.isEnabled(OutputGenerator::Latex);
   //bool manEnabled   = ol.isEnabled(OutputGenerator::Man);
@@ -3553,10 +3553,10 @@ bool hasVisibleRoot(const BaseClassList &bcl)
   for (const auto &bcd : bcl)
   {
     const ClassDef *cd=bcd.classDef;
-    if (cd->isVisibleInHierarchy()) return TRUE;
-    hasVisibleRoot(cd->baseClasses());
+    if (cd->isVisibleInHierarchy()) return true;
+    if (hasVisibleRoot(cd->baseClasses())) return true;
   }
-  return FALSE;
+  return false;
 }
 
 //----------------------------------------------------------------------
