@@ -20,7 +20,6 @@
 
 #include <memory>
 
-#include "sortdict.h"
 #include "definition.h"
 #include "dirdef.h"
 #include "layout.h"
@@ -37,7 +36,6 @@ class ClassDef;
 class NamespaceDef;
 class GroupList;
 class OutputList;
-class NamespaceSDict;
 class PageLinkedRefMap;
 class PageDef;
 class DirDef;
@@ -66,7 +64,7 @@ class GroupDef : public DefinitionMutable, public Definition
     virtual void addPage(const PageDef *def) = 0;
     virtual void addExample(const PageDef *def) = 0;
     virtual void addDir(DirDef *dd) = 0;
-    virtual bool insertMember(MemberDef *def,bool docOnly=FALSE) = 0;
+    virtual bool insertMember(const MemberDef *def,bool docOnly=FALSE) = 0;
     virtual void removeMember(MemberDef *md) = 0;
     virtual bool findGroup(const GroupDef *def) const = 0;
     virtual void writeDocumentation(OutputList &ol) = 0;
@@ -97,7 +95,7 @@ class GroupDef : public DefinitionMutable, public Definition
     /* user defined member groups */
     virtual const MemberGroupList &getMemberGroups() const = 0;
 
-    virtual FileList *      getFiles() const = 0;
+    virtual const FileList &getFiles() const = 0;
     virtual const ClassLinkedRefMap &getClasses() const = 0;
     virtual const NamespaceLinkedRefMap &getNamespaces() const = 0;
     virtual const GroupList &getSubGroups() const = 0;

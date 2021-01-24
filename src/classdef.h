@@ -21,10 +21,6 @@
 #include <vector>
 #include <set>
 
-#include <qlist.h>
-#include <qdict.h>
-#include <qptrdict.h>
-
 #include "containers.h"
 #include "definition.h"
 #include "arguments.h"
@@ -43,17 +39,16 @@ class NamespaceDef;
 class MemberDef;
 class ExampleList;
 class MemberNameInfoLinkedMap;
-class UsesClassDict;
-class ConstraintClassDict;
-class QTextStream;
 class PackageDef;
 class GroupDef;
-class StringDict;
 struct IncludeInfo;
 class ClassDefImpl;
 class FTextStream;
 class ClassDef;
 class ClassDefMutable;
+class UsesClassList;
+class ConstraintClassList;
+class MemberGroupList;
 
 /** Class that contains information about an inheritance relation.
  */
@@ -85,6 +80,21 @@ struct BaseClassDef
 };
 
 using BaseClassList = std::vector<BaseClassDef>;
+
+/** Class that contains information about a template instance relation */
+struct TemplateInstanceDef
+{
+  TemplateInstanceDef(const QCString &ts,const ClassDef *cd) : templSpec(ts), classDef(cd) {}
+  QCString templSpec;
+  const ClassDef *classDef;
+};
+
+using TemplateInstanceList = std::vector<TemplateInstanceDef>;
+
+using TemplateNameMap = std::map<std::string,int>;
+
+using ClassDefSet = std::set<const ClassDef*>;
+
 
 /** A abstract class representing of a compound symbol.
  *
@@ -212,7 +222,7 @@ class ClassDef : public Definition
     /** Returns the Java package this class is in or 0 if not applicable.
      */
 
-    virtual MemberDef    *getMemberByName(const QCString &) const = 0;
+    virtual const MemberDef *getMemberByName(const QCString &) const = 0;
 
     /** Returns TRUE iff \a bcd is a direct or indirect base class of this
      *  class. This function will recursively traverse all branches of the
@@ -233,7 +243,7 @@ class ClassDef : public Definition
     /** Returns a sorted dictionary with all template instances found for
      *  this template class. Returns 0 if not a template or no instances.
      */
-    virtual QDict<ClassDef> *getTemplateInstances() const = 0;
+    virtual const TemplateInstanceList &getTemplateInstances() const = 0;
 
     /** Returns the template master of which this class is an instance.
      *  Returns 0 if not applicable.
@@ -243,15 +253,13 @@ class ClassDef : public Definition
     /** Returns TRUE if this class is a template */
     virtual bool isTemplate() const = 0;
 
-    virtual IncludeInfo *includeInfo() const = 0;
+    virtual const IncludeInfo *includeInfo() const = 0;
 
-    virtual UsesClassDict *usedImplementationClasses() const = 0;
+    virtual const UsesClassList &usedImplementationClasses() const = 0;
 
-    virtual UsesClassDict *usedByImplementationClasses() const = 0;
+    virtual const UsesClassList &usedByImplementationClasses() const = 0;
 
-    virtual UsesClassDict *usedInterfaceClasses() const = 0;
-
-    virtual ConstraintClassDict *templateTypeConstraints() const = 0;
+    virtual const ConstraintClassList &templateTypeConstraints() const = 0;
 
     virtual bool isTemplateArgument() const = 0;
 
@@ -322,9 +330,7 @@ class ClassDef : public Definition
     /** Returns the member groups defined for this class */
     virtual const MemberGroupList &getMemberGroups() const = 0;
 
-    virtual QDict<int> *getTemplateBaseClassNames() const = 0;
-
-    virtual ClassDef *getVariableInstance(const char *templSpec) const = 0;
+    virtual const TemplateNameMap &getTemplateBaseClassNames() const = 0;
 
     virtual bool isUsedOnly() const = 0;
 
@@ -335,7 +341,7 @@ class ClassDef : public Definition
 
     virtual const ClassDef *tagLessReference() const = 0;
 
-    virtual MemberDef *isSmartPointer() const = 0;
+    virtual const MemberDef *isSmartPointer() const = 0;
 
     virtual bool isJavaEnum() const = 0;
 
@@ -361,7 +367,7 @@ class ClassDef : public Definition
                 const ClassDef *inheritedFrom,bool additional) const = 0;
     virtual int countInheritanceNodes() const = 0;
     virtual int countMemberDeclarations(MemberListType lt,const ClassDef *inheritedFrom,
-                int lt2,bool invert,bool showAlways,QPtrDict<void> *visitedClasses) const = 0;
+                int lt2,bool invert,bool showAlways,ClassDefSet &visitedClasses) const = 0;
 
     //-----------------------------------------------------------------------------------
     // --- helpers ----
@@ -392,7 +398,7 @@ class ClassDefMutable : public DefinitionMutable, public ClassDef
     virtual void setClassName(const char *name) = 0;
     virtual void setClassSpecifier(uint64 spec) = 0;
     virtual void setTemplateArguments(const ArgumentList &al) = 0;
-    virtual void setTemplateBaseClassNames(QDict<int> *templateNames) = 0;
+    virtual void setTemplateBaseClassNames(const TemplateNameMap &templateNames) = 0;
     virtual void setTemplateMaster(const ClassDef *tm) = 0;
     virtual void setTypeConstraints(const ArgumentList &al) = 0;
     virtual void setCategoryOf(ClassDef *cd) = 0;
@@ -408,7 +414,7 @@ class ClassDefMutable : public DefinitionMutable, public ClassDef
     virtual void insertBaseClass(ClassDef *,const char *name,Protection p,Specifier s,const char *t=0) = 0;
     virtual void insertSubClass(ClassDef *,Protection p,Specifier s,const char *t=0) = 0;
     virtual void insertMember(MemberDef *) = 0;
-    virtual void insertUsedFile(FileDef *) = 0;
+    virtual void insertUsedFile(const FileDef *) = 0;
     virtual void addMembersToTemplateInstance(const ClassDef *cd,const ArgumentList &templateArguments,const char *templSpec) = 0;
     virtual void addInnerCompound(const Definition *d) = 0;
     virtual bool addExample(const char *anchor,const char *name, const char *file) = 0;
@@ -444,10 +450,10 @@ class ClassDefMutable : public DefinitionMutable, public ClassDef
     virtual void writeSummaryLinks(OutputList &ol) const = 0;
     virtual void writeInlineDocumentation(OutputList &ol) const = 0;
     virtual void writeTagFile(FTextStream &) = 0;
-    virtual void writeMemberDeclarations(OutputList &ol,MemberListType lt,const QCString &title,
+    virtual void writeMemberDeclarations(OutputList &ol,ClassDefSet &visitedClasses,
+                 MemberListType lt,const QCString &title,
                  const char *subTitle=0,bool showInline=FALSE,const ClassDef *inheritedFrom=0,
-                 int lt2=-1,bool invert=FALSE,bool showAlways=FALSE,
-                 QPtrDict<void> *visitedClasses=0) const = 0;
+                 int lt2=-1,bool invert=FALSE,bool showAlways=FALSE) const = 0;
     virtual void addGroupedInheritedMembers(OutputList &ol,MemberListType lt,
                  const ClassDef *inheritedFrom,const QCString &inheritId) const = 0;
 
@@ -462,10 +468,6 @@ ClassDefMutable *createClassDef(
              bool isSymbol=TRUE,bool isJavaEnum=FALSE);
 
 ClassDef *createClassDefAlias(const Definition *newScope,const ClassDef *cd);
-
-// --- Set of classes
-
-using ClassDefSet = std::set<const ClassDef*>;
 
 // --- Cast functions
 
@@ -508,27 +510,11 @@ struct UsesClassDef
   bool containment = true;
 };
 
-/** Dictionary of usage relations.
- */
-class UsesClassDict : public QDict<UsesClassDef>
+class UsesClassList : public std::vector<UsesClassDef>
 {
-  public:
-    UsesClassDict(uint size) : QDict<UsesClassDef>(size) {}
-   ~UsesClassDict() {}
-};
-
-/** Iterator class to iterate over a dictionary of usage relations.
- */
-class UsesClassDictIterator : public QDictIterator<UsesClassDef>
-{
-  public:
-    UsesClassDictIterator(const QDict<UsesClassDef> &d)
-      : QDictIterator<UsesClassDef>(d) {}
-   ~UsesClassDictIterator() {}
 };
 
 //------------------------------------------------------------------------
-
 
 /** Class that contains information about a type constraint relations.
  */
@@ -556,23 +542,8 @@ struct ConstraintClassDef
   StringSet accessors;
 };
 
-/** Dictionary of constraint relations.
- */
-class ConstraintClassDict : public QDict<ConstraintClassDef>
+class ConstraintClassList : public std::vector<ConstraintClassDef>
 {
-  public:
-    ConstraintClassDict(uint size) : QDict<ConstraintClassDef>(size) {}
-   ~ConstraintClassDict() {}
-};
-
-/** Iterator class to iterate over a dictionary of constraint relations.
- */
-class ConstraintClassDictIterator : public QDictIterator<ConstraintClassDef>
-{
-  public:
-    ConstraintClassDictIterator(const QDict<ConstraintClassDef> &d)
-      : QDictIterator<ConstraintClassDef>(d) {}
-   ~ConstraintClassDictIterator() {}
 };
 
 //------------------------------------------------------------------------

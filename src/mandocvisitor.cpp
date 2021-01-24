@@ -381,12 +381,12 @@ void ManDocVisitor::visit(DocIncOperator *op)
       m_t << ".PP" << endl;
       m_t << ".nf" << endl;
     }
-    pushEnabled();
+    pushHidden(m_hide);
     m_hide = TRUE;
   }
   if (op->type()!=DocIncOperator::Skip)
   {
-    popEnabled();
+    m_hide = popHidden();
     if (!m_hide)
     {
       FileDef *fd = 0;
@@ -407,12 +407,12 @@ void ManDocVisitor::visit(DocIncOperator *op)
                                        );
       if (fd) delete fd;
     }
-    pushEnabled();
+    pushHidden(m_hide);
     m_hide=TRUE;
   }
   if (op->isLast())
   {
-    popEnabled();
+    m_hide = popHidden();
     if (!m_hide)
     {
       if (!m_firstCol) m_t << endl;
@@ -942,21 +942,17 @@ void ManDocVisitor::visitPre(DocParamList *pl)
 {
   if (m_hide) return;
   m_t << "\\fI";
-  //QStrListIterator li(pl->parameters());
-  //const char *s;
-  QListIterator<DocNode> li(pl->parameters());
-  DocNode *param;
   bool first=TRUE;
-  for (li.toFirst();(param=li.current());++li)
+  for (const auto &param : pl->parameters())
   {
     if (!first) m_t << ","; else first=FALSE;
     if (param->kind()==DocNode::Kind_Word)
     {
-      visit((DocWord*)param);
+      visit((DocWord*)param.get());
     }
     else if (param->kind()==DocNode::Kind_LinkedWord)
     {
-      visit((DocLinkedWord*)param);
+      visit((DocLinkedWord*)param.get());
     }
   }
   m_t << "\\fP ";
@@ -1071,18 +1067,5 @@ void ManDocVisitor::filter(const char *str)
       }
     }
   }
-}
-
-void ManDocVisitor::pushEnabled()
-{
-  m_enabled.push(new bool(m_hide));
-}
-
-void ManDocVisitor::popEnabled()
-{
-  bool *v=m_enabled.pop();
-  ASSERT(v!=0);
-  m_hide = *v;
-  delete v;
 }
 

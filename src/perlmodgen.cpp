@@ -18,10 +18,9 @@
  */
 
 #include <stdlib.h>
+#include <stack>
 
 #include <qdir.h>
-#include <qstack.h>
-#include <qdict.h>
 #include <qfile.h>
 
 #include "perlmodgen.h"
@@ -192,7 +191,7 @@ private:
   int m_indentation;
   bool m_blockstart;
 
-  QStack<PerlModOutputStream> m_saved;
+  std::stack<PerlModOutputStream*> m_saved;
   char m_spaces[PERLOUTPUT_MAX_INDENTATION * 2 + 2];
 };
 
@@ -206,7 +205,8 @@ void PerlModOutput::icloseSave(QCString &s)
 {
   s = m_stream->m_s;
   delete m_stream;
-  m_stream = m_saved.pop();
+  m_stream = m_saved.top();
+  m_saved.pop();
 }
 
 void PerlModOutput::incIndent()
@@ -688,9 +688,7 @@ void PerlModDocVisitor::visit(DocVerbatim *s)
   if (s->hasCaption())
   {
      openSubBlock("caption");
-     QListIterator<DocNode> cli(s->children());
-     DocNode *n;
-     for (cli.toFirst();(n=cli.current());++cli) n->accept(this);
+     for (const auto &n : s->children()) n->accept(this);
      closeSubBlock();
   }
   m_output.addFieldQuotedString("content", s->text());
@@ -1294,25 +1292,21 @@ void PerlModDocVisitor::visitPre(DocParamList *pl)
   leaveText();
   m_output.openHash()
     .openList("parameters");
-  //QStrListIterator li(pl->parameters());
-  //const char *s;
-  QListIterator<DocNode> li(pl->parameters());
-  DocNode *param;
-  for (li.toFirst();(param=li.current());++li)
+  for (const auto &param : pl->parameters())
   {
     QCString name;
     if (param->kind()==DocNode::Kind_Word)
     {
-      name = ((DocWord*)param)->word();
+      name = ((DocWord*)param.get())->word();
     }
     else if (param->kind()==DocNode::Kind_LinkedWord)
     {
-      name = ((DocLinkedWord*)param)->word();
+      name = ((DocLinkedWord*)param.get())->word();
     }
 
     QCString dir = "";
     DocParamSect *sect = 0;
-    if (pl->parent()->kind()==DocNode::Kind_ParamSect)
+    if (pl->parent() && pl->parent()->kind()==DocNode::Kind_ParamSect)
     {
       sect=(DocParamSect*)pl->parent();
     }
@@ -1676,13 +1670,11 @@ void PerlModGenerator::generatePerlModForMember(const MemberDef *md,const Defini
 
   if (md->memberType()==MemberType_Enumeration) // enum
   {
-    const MemberList *enumFields = md->enumFieldList();
-    if (enumFields)
+    const MemberList &enumFields = md->enumFieldList();
+    if (!enumFields.empty())
     {
       m_output.openList("values");
-      MemberListIterator emli(*enumFields);
-      const MemberDef *emd;
-      for (emli.toFirst();(emd=emli.current());++emli)
+      for (const auto &emd : enumFields)
       {
 	m_output.openHash()
 	  .addFieldQuotedString("name", emd->name());
@@ -1713,14 +1705,13 @@ void PerlModGenerator::generatePerlModForMember(const MemberDef *md,const Defini
       .addFieldQuotedString("name", rmd->name())
       .closeHash();
 
-  MemberList *rbml = md->reimplementedBy();
-  if (rbml)
+  const MemberList &rbml = md->reimplementedBy();
+  if (!rbml.empty())
   {
-    MemberListIterator mli(*rbml);
     m_output.openList("reimplemented_by");
-    for (mli.toFirst();(rmd=mli.current());++mli)
+    for (const auto &rbmd : rbml)
       m_output.openHash()
-	.addFieldQuotedString("name", rmd->name())
+	.addFieldQuotedString("name", rbmd->name())
 	.closeHash();
     m_output.closeList();
   }
@@ -1739,9 +1730,7 @@ void PerlModGenerator::generatePerlModSection(const Definition *d,
     m_output.addFieldQuotedString("header", header);
 
   m_output.openList("members");
-  MemberListIterator mli(*ml);
-  const MemberDef *md;
-  for (mli.toFirst();(md=mli.current());++mli)
+  for (const auto &md : *ml)
   {
     generatePerlModForMember(md,d);
   }
@@ -1787,12 +1776,10 @@ void PerlModGenerator::generatePerlUserDefinedSection(const Definition *d, const
       if (mg->header())
         m_output.addFieldQuotedString("header", mg->header());
 
-      if (mg->members())
+      if (!mg->members().empty())
       {
         m_output.openList("members");
-        MemberListIterator mli(*mg->members());
-        const MemberDef *md;
-        for (mli.toFirst(); (md = mli.current()); ++mli)
+        for (const auto &md : mg->members())
         {
           generatePerlModForMember(md, d);
         }
@@ -1868,7 +1855,7 @@ void PerlModGenerator::generatePerlModForClass(const ClassDef *cd)
     m_output.closeList();
   }
 
-  IncludeInfo *ii=cd->includeInfo();
+  const IncludeInfo *ii=cd->includeInfo();
   if (ii)
   {
     QCString nm = ii->includeName;
@@ -2018,38 +2005,29 @@ void PerlModGenerator::generatePerlModForFile(const FileDef *fd)
   m_output.openHash()
     .addFieldQuotedString("name", fd->name());
 
-  IncludeInfo *inc;
   m_output.openList("includes");
-  if (fd->includeFileList())
+  for (const auto &inc: fd->includeFileList())
   {
-    QListIterator<IncludeInfo> ili1(*fd->includeFileList());
-    for (ili1.toFirst();(inc=ili1.current());++ili1)
+    m_output.openHash()
+      .addFieldQuotedString("name", inc.includeName);
+    if (inc.fileDef && !inc.fileDef->isReference())
     {
-      m_output.openHash()
-        .addFieldQuotedString("name", inc->includeName);
-      if (inc->fileDef && !inc->fileDef->isReference())
-      {
-        m_output.addFieldQuotedString("ref", inc->fileDef->getOutputFileBase());
-      }
-      m_output.closeHash();
+      m_output.addFieldQuotedString("ref", inc.fileDef->getOutputFileBase());
     }
+    m_output.closeHash();
   }
   m_output.closeList();
 
   m_output.openList("included_by");
-  if (fd->includedByFileList())
+  for (const auto &inc : fd->includedByFileList())
   {
-    QListIterator<IncludeInfo> ili2(*fd->includedByFileList());
-    for (ili2.toFirst();(inc=ili2.current());++ili2)
+    m_output.openHash()
+      .addFieldQuotedString("name", inc.includeName);
+    if (inc.fileDef && !inc.fileDef->isReference())
     {
-      m_output.openHash()
-        .addFieldQuotedString("name", inc->includeName);
-      if (inc->fileDef && !inc->fileDef->isReference())
-      {
-        m_output.addFieldQuotedString("ref", inc->fileDef->getOutputFileBase());
-      }
-      m_output.closeHash();
+      m_output.addFieldQuotedString("ref", inc.fileDef->getOutputFileBase());
     }
+    m_output.closeHash();
   }
   m_output.closeList();
 
@@ -2088,13 +2066,10 @@ void PerlModGenerator::generatePerlModForGroup(const GroupDef *gd)
     .addFieldQuotedString("name", gd->name())
     .addFieldQuotedString("title", gd->groupTitle());
 
-  FileList *fl = gd->getFiles();
-  if (fl)
+  if (!gd->getFiles().empty())
   {
     m_output.openList("files");
-    QListIterator<FileDef> fli(*fl);
-    const FileDef *fd;
-    for (fli.toFirst();(fd=fli.current());++fli)
+    for (const auto &fd : gd->getFiles())
       m_output.openHash()
 	.addFieldQuotedString("name", fd->name())
 	.closeHash();

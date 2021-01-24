@@ -18,7 +18,6 @@
 #include <qdir.h>
 #include <qfile.h>
 #include <qtextstream.h>
-#include <qintdict.h>
 
 #include "xmlgen.h"
 #include "doxygen.h"
@@ -59,55 +58,54 @@
 
 //------------------
 
-/** Helper class mapping MemberList::ListType to a string representing */
-class XmlSectionMapper : public QIntDict<char>
+static std::map<MemberListType,std::string> g_xmlSectionMap =
 {
-  public:
-    XmlSectionMapper() : QIntDict<char>(47)
-    {
-      insert(MemberListType_pubTypes,"public-type");
-      insert(MemberListType_pubMethods,"public-func");
-      insert(MemberListType_pubAttribs,"public-attrib");
-      insert(MemberListType_pubSlots,"public-slot");
-      insert(MemberListType_signals,"signal");
-      insert(MemberListType_dcopMethods,"dcop-func");
-      insert(MemberListType_properties,"property");
-      insert(MemberListType_events,"event");
-      insert(MemberListType_interfaces,"interfaces");
-      insert(MemberListType_services,"services");
-      insert(MemberListType_pubStaticMethods,"public-static-func");
-      insert(MemberListType_pubStaticAttribs,"public-static-attrib");
-      insert(MemberListType_proTypes,"protected-type");
-      insert(MemberListType_proMethods,"protected-func");
-      insert(MemberListType_proAttribs,"protected-attrib");
-      insert(MemberListType_proSlots,"protected-slot");
-      insert(MemberListType_proStaticMethods,"protected-static-func");
-      insert(MemberListType_proStaticAttribs,"protected-static-attrib");
-      insert(MemberListType_pacTypes,"package-type");
-      insert(MemberListType_pacMethods,"package-func");
-      insert(MemberListType_pacAttribs,"package-attrib");
-      insert(MemberListType_pacStaticMethods,"package-static-func");
-      insert(MemberListType_pacStaticAttribs,"package-static-attrib");
-      insert(MemberListType_priTypes,"private-type");
-      insert(MemberListType_priMethods,"private-func");
-      insert(MemberListType_priAttribs,"private-attrib");
-      insert(MemberListType_priSlots,"private-slot");
-      insert(MemberListType_priStaticMethods,"private-static-func");
-      insert(MemberListType_priStaticAttribs,"private-static-attrib");
-      insert(MemberListType_friends,"friend");
-      insert(MemberListType_related,"related");
-      insert(MemberListType_decDefineMembers,"define");
-      insert(MemberListType_decProtoMembers,"prototype");
-      insert(MemberListType_decTypedefMembers,"typedef");
-      insert(MemberListType_decSequenceMembers,"sequence");
-      insert(MemberListType_decDictionaryMembers,"dictionary");
-      insert(MemberListType_decEnumMembers,"enum");
-      insert(MemberListType_decFuncMembers,"func");
-      insert(MemberListType_decVarMembers,"var");
-    }
+  { MemberListType_pubTypes,"public-type" },
+  { MemberListType_pubMethods,"public-func" },
+  { MemberListType_pubAttribs,"public-attrib" },
+  { MemberListType_pubSlots,"public-slot" },
+  { MemberListType_signals,"signal" },
+  { MemberListType_dcopMethods,"dcop-func" },
+  { MemberListType_properties,"property" },
+  { MemberListType_events,"event" },
+  { MemberListType_interfaces,"interfaces" },
+  { MemberListType_services,"services" },
+  { MemberListType_pubStaticMethods,"public-static-func" },
+  { MemberListType_pubStaticAttribs,"public-static-attrib" },
+  { MemberListType_proTypes,"protected-type" },
+  { MemberListType_proMethods,"protected-func" },
+  { MemberListType_proAttribs,"protected-attrib" },
+  { MemberListType_proSlots,"protected-slot" },
+  { MemberListType_proStaticMethods,"protected-static-func" },
+  { MemberListType_proStaticAttribs,"protected-static-attrib" },
+  { MemberListType_pacTypes,"package-type" },
+  { MemberListType_pacMethods,"package-func" },
+  { MemberListType_pacAttribs,"package-attrib" },
+  { MemberListType_pacStaticMethods,"package-static-func" },
+  { MemberListType_pacStaticAttribs,"package-static-attrib" },
+  { MemberListType_priTypes,"private-type" },
+  { MemberListType_priMethods,"private-func" },
+  { MemberListType_priAttribs,"private-attrib" },
+  { MemberListType_priSlots,"private-slot" },
+  { MemberListType_priStaticMethods,"private-static-func" },
+  { MemberListType_priStaticAttribs,"private-static-attrib" },
+  { MemberListType_friends,"friend" },
+  { MemberListType_related,"related" },
+  { MemberListType_decDefineMembers,"define" },
+  { MemberListType_decProtoMembers,"prototype" },
+  { MemberListType_decTypedefMembers,"typedef" },
+  { MemberListType_decSequenceMembers,"sequence" },
+  { MemberListType_decDictionaryMembers,"dictionary" },
+  { MemberListType_decEnumMembers,"enum" },
+  { MemberListType_decFuncMembers,"func" },
+  { MemberListType_decVarMembers,"var" },
 };
 
-static XmlSectionMapper g_xmlSectionMapper;
+static const char *xmlSectionMapper(MemberListType ml)
+{
+  auto it = g_xmlSectionMap.find(ml);
+  return it!=g_xmlSectionMap.end() ? it->second.c_str() : "";
+}
 
 
 inline void writeXMLString(FTextStream &t,const char *s)
@@ -838,16 +836,11 @@ static void generateXMLForMember(const MemberDef *md,FTextStream &ti,FTextStream
       << memberOutputFileBase(rmd) << "_1" << rmd->anchor() << "\">"
       << convertToXML(rmd->name()) << "</reimplements>" << endl;
   }
-  MemberList *rbml = md->reimplementedBy();
-  if (rbml)
+  for (const auto &rbmd : md->reimplementedBy())
   {
-    MemberListIterator mli(*rbml);
-    for (mli.toFirst();(rmd=mli.current());++mli)
-    {
-      t << "        <reimplementedby refid=\""
-        << memberOutputFileBase(rmd) << "_1" << rmd->anchor() << "\">"
-        << convertToXML(rmd->name()) << "</reimplementedby>" << endl;
-    }
+    t << "        <reimplementedby refid=\""
+      << memberOutputFileBase(rbmd) << "_1" << rbmd->anchor() << "\">"
+      << convertToXML(rbmd->name()) << "</reimplementedby>" << endl;
   }
 
   if (md->isFriendClass()) // for friend classes we show a link to the class as a "parameter"
@@ -955,44 +948,38 @@ static void generateXMLForMember(const MemberDef *md,FTextStream &ti,FTextStream
 
   if (md->memberType()==MemberType_Enumeration) // enum
   {
-    const MemberList *enumFields = md->enumFieldList();
-    if (enumFields)
+    for (const auto &emd : md->enumFieldList())
     {
-      MemberListIterator emli(*enumFields);
-      const MemberDef *emd;
-      for (emli.toFirst();(emd=emli.current());++emli)
-      {
-        ti << "    <member refid=\"" << memberOutputFileBase(md)
-           << "_1" << emd->anchor() << "\" kind=\"enumvalue\"><name>"
-           << convertToXML(emd->name()) << "</name></member>" << endl;
+      ti << "    <member refid=\"" << memberOutputFileBase(md)
+         << "_1" << emd->anchor() << "\" kind=\"enumvalue\"><name>"
+         << convertToXML(emd->name()) << "</name></member>" << endl;
 
-        t << "        <enumvalue id=\"" << memberOutputFileBase(md) << "_1"
-          << emd->anchor() << "\" prot=\"";
-        switch (emd->protection())
-        {
-          case Public:    t << "public";    break;
-          case Protected: t << "protected"; break;
-          case Private:   t << "private";   break;
-          case Package:   t << "package";   break;
-        }
-        t << "\">" << endl;
-        t << "          <name>";
-        writeXMLString(t,emd->name());
-        t << "</name>" << endl;
-        if (!emd->initializer().isEmpty())
-        {
-          t << "          <initializer>";
-          writeXMLString(t,emd->initializer());
-          t << "</initializer>" << endl;
-        }
-        t << "          <briefdescription>" << endl;
-        writeXMLDocBlock(t,emd->briefFile(),emd->briefLine(),emd->getOuterScope(),emd,emd->briefDescription());
-        t << "          </briefdescription>" << endl;
-        t << "          <detaileddescription>" << endl;
-        writeXMLDocBlock(t,emd->docFile(),emd->docLine(),emd->getOuterScope(),emd,emd->documentation());
-        t << "          </detaileddescription>" << endl;
-        t << "        </enumvalue>" << endl;
+      t << "        <enumvalue id=\"" << memberOutputFileBase(md) << "_1"
+        << emd->anchor() << "\" prot=\"";
+      switch (emd->protection())
+      {
+        case Public:    t << "public";    break;
+        case Protected: t << "protected"; break;
+        case Private:   t << "private";   break;
+        case Package:   t << "package";   break;
       }
+      t << "\">" << endl;
+      t << "          <name>";
+      writeXMLString(t,emd->name());
+      t << "</name>" << endl;
+      if (!emd->initializer().isEmpty())
+      {
+        t << "          <initializer>";
+        writeXMLString(t,emd->initializer());
+        t << "</initializer>" << endl;
+      }
+      t << "          <briefdescription>" << endl;
+      writeXMLDocBlock(t,emd->briefFile(),emd->briefLine(),emd->getOuterScope(),emd,emd->briefDescription());
+      t << "          </briefdescription>" << endl;
+      t << "          <detaileddescription>" << endl;
+      writeXMLDocBlock(t,emd->docFile(),emd->docLine(),emd->getOuterScope(),emd,emd->documentation());
+      t << "          </detaileddescription>" << endl;
+      t << "        </enumvalue>" << endl;
     }
   }
   t << "        <briefdescription>" << endl;
@@ -1058,10 +1045,8 @@ static void generateXMLSection(const Definition *d,FTextStream &ti,FTextStream &
                       const char *documentation=0)
 {
   if (ml==0) return;
-  MemberListIterator mli(*ml);
-  const MemberDef *md;
   int count=0;
-  for (mli.toFirst();(md=mli.current());++mli)
+  for (const auto &md : *ml)
   {
     if (memberVisible(d,md) && (md->memberType()!=MemberType_EnumValue) &&
         !md->isHidden())
@@ -1082,7 +1067,7 @@ static void generateXMLSection(const Definition *d,FTextStream &ti,FTextStream &
     writeXMLDocBlock(t,d->docFile(),d->docLine(),d,0,documentation);
     t << "</description>" << endl;
   }
-  for (mli.toFirst();(md=mli.current());++mli)
+  for (const auto &md : *ml)
   {
     if (memberVisible(d,md))
     {
@@ -1166,17 +1151,12 @@ static void writeInnerNamespaces(const NamespaceLinkedRefMap &nl,FTextStream &t)
   }
 }
 
-static void writeInnerFiles(const FileList *fl,FTextStream &t)
+static void writeInnerFiles(const FileList &fl,FTextStream &t)
 {
-  if (fl)
+  for (const auto &fd : fl)
   {
-    QListIterator<FileDef> fli(*fl);
-    FileDef *fd;
-    for (fli.toFirst();(fd=fli.current());++fli)
-    {
-      t << "    <innerfile refid=\"" << fd->getOutputFileBase()
-        << "\">" << convertToXML(fd->name()) << "</innerfile>" << endl;
-    }
+    t << "    <innerfile refid=\"" << fd->getOutputFileBase()
+      << "\">" << convertToXML(fd->name()) << "</innerfile>" << endl;
   }
 }
 
@@ -1334,7 +1314,7 @@ static void generateXMLForClass(const ClassDef *cd,FTextStream &ti)
       << "</derivedcompoundref>" << endl;
   }
 
-  IncludeInfo *ii=cd->includeInfo();
+  const IncludeInfo *ii=cd->includeInfo();
   if (ii)
   {
     QCString nm = ii->includeName;
@@ -1357,7 +1337,7 @@ static void generateXMLForClass(const ClassDef *cd,FTextStream &ti)
   writeTemplateList(cd,t);
   for (const auto &mg : cd->getMemberGroups())
   {
-    generateXMLSection(cd,ti,t,mg->members(),"user-defined",mg->header(),
+    generateXMLSection(cd,ti,t,&mg->members(),"user-defined",mg->header(),
         mg->documentation());
   }
 
@@ -1365,7 +1345,7 @@ static void generateXMLForClass(const ClassDef *cd,FTextStream &ti)
   {
     if ((ml->listType()&MemberListType_detailedLists)==0)
     {
-      generateXMLSection(cd,ti,t,ml.get(),g_xmlSectionMapper.find(ml->listType()));
+      generateXMLSection(cd,ti,t,ml.get(),xmlSectionMapper(ml->listType()));
     }
   }
 
@@ -1454,7 +1434,7 @@ static void generateXMLForNamespace(const NamespaceDef *nd,FTextStream &ti)
 
   for (const auto &mg : nd->getMemberGroups())
   {
-    generateXMLSection(nd,ti,t,mg->members(),"user-defined",mg->header(),
+    generateXMLSection(nd,ti,t,&mg->members(),"user-defined",mg->header(),
           mg->documentation());
   }
 
@@ -1462,7 +1442,7 @@ static void generateXMLForNamespace(const NamespaceDef *nd,FTextStream &ti)
   {
     if ((ml->listType()&MemberListType_declarationLists)!=0)
     {
-      generateXMLSection(nd,ti,t,ml.get(),g_xmlSectionMapper.find(ml->listType()));
+      generateXMLSection(nd,ti,t,ml.get(),xmlSectionMapper(ml->listType()));
     }
   }
 
@@ -1523,38 +1503,28 @@ static void generateXMLForFile(FileDef *fd,FTextStream &ti)
   writeXMLString(t,fd->name());
   t << "</compoundname>" << endl;
 
-  IncludeInfo *inc;
-
-  if (fd->includeFileList())
+  for (const auto &inc : fd->includeFileList())
   {
-    QListIterator<IncludeInfo> ili1(*fd->includeFileList());
-    for (ili1.toFirst();(inc=ili1.current());++ili1)
+    t << "    <includes";
+    if (inc.fileDef && !inc.fileDef->isReference()) // TODO: support external references
     {
-      t << "    <includes";
-      if (inc->fileDef && !inc->fileDef->isReference()) // TODO: support external references
-      {
-        t << " refid=\"" << inc->fileDef->getOutputFileBase() << "\"";
-      }
-      t << " local=\"" << (inc->local ? "yes" : "no") << "\">";
-      t << inc->includeName;
-      t << "</includes>" << endl;
+      t << " refid=\"" << inc.fileDef->getOutputFileBase() << "\"";
     }
+    t << " local=\"" << (inc.local ? "yes" : "no") << "\">";
+    t << inc.includeName;
+    t << "</includes>" << endl;
   }
 
-  if (fd->includedByFileList())
+  for (const auto &inc : fd->includedByFileList())
   {
-    QListIterator<IncludeInfo> ili2(*fd->includedByFileList());
-    for (ili2.toFirst();(inc=ili2.current());++ili2)
+    t << "    <includedby";
+    if (inc.fileDef && !inc.fileDef->isReference()) // TODO: support external references
     {
-      t << "    <includedby";
-      if (inc->fileDef && !inc->fileDef->isReference()) // TODO: support external references
-      {
-        t << " refid=\"" << inc->fileDef->getOutputFileBase() << "\"";
-      }
-      t << " local=\"" << (inc->local ? "yes" : "no") << "\">";
-      t << inc->includeName;
-      t << "</includedby>" << endl;
+      t << " refid=\"" << inc.fileDef->getOutputFileBase() << "\"";
     }
+    t << " local=\"" << (inc.local ? "yes" : "no") << "\">";
+    t << inc.includeName;
+    t << "</includedby>" << endl;
   }
 
   DotInclDepGraph incDepGraph(fd,FALSE);
@@ -1578,7 +1548,7 @@ static void generateXMLForFile(FileDef *fd,FTextStream &ti)
 
   for (const auto &mg : fd->getMemberGroups())
   {
-    generateXMLSection(fd,ti,t,mg->members(),"user-defined",mg->header(),
+    generateXMLSection(fd,ti,t,&mg->members(),"user-defined",mg->header(),
         mg->documentation());
   }
 
@@ -1586,7 +1556,7 @@ static void generateXMLForFile(FileDef *fd,FTextStream &ti)
   {
     if ((ml->listType()&MemberListType_declarationLists)!=0)
     {
-      generateXMLSection(fd,ti,t,ml.get(),g_xmlSectionMapper.find(ml->listType()));
+      generateXMLSection(fd,ti,t,ml.get(),xmlSectionMapper(ml->listType()));
     }
   }
 
@@ -1651,7 +1621,7 @@ static void generateXMLForGroup(const GroupDef *gd,FTextStream &ti)
 
   for (const auto &mg : gd->getMemberGroups())
   {
-    generateXMLSection(gd,ti,t,mg->members(),"user-defined",mg->header(),
+    generateXMLSection(gd,ti,t,&mg->members(),"user-defined",mg->header(),
         mg->documentation());
   }
 
@@ -1659,7 +1629,7 @@ static void generateXMLForGroup(const GroupDef *gd,FTextStream &ti)
   {
     if ((ml->listType()&MemberListType_declarationLists)!=0)
     {
-      generateXMLSection(gd,ti,t,ml.get(),g_xmlSectionMapper.find(ml->listType()));
+      generateXMLSection(gd,ti,t,ml.get(),xmlSectionMapper(ml->listType()));
     }
   }
 

@@ -17,14 +17,12 @@
 #define DIRDEF_H
 
 #include "linkedmap.h"
-#include "sortdict.h"
 #include "definition.h"
 
 #include <vector>
 #include <map>
 #include <qglobal.h>
 #include <qcstring.h>
-
 
 class FileList;
 class QStrList;
@@ -45,23 +43,20 @@ bool compareDirDefs(const DirDef *item1, const DirDef *item2);
 class FilePair
 {
   public:
-    FilePair(FileDef *src,FileDef *dst) : m_src(src), m_dst(dst) {}
+    FilePair(const FileDef *src,const FileDef *dst) : m_src(src), m_dst(dst) {}
     const FileDef *source() const { return m_src; }
     const FileDef *destination() const { return m_dst; }
+    static QCString key(const FileDef *srcFd,const FileDef *dstFd);
   private:
-    FileDef *m_src;
-    FileDef *m_dst;
+    const FileDef *m_src;
+    const FileDef *m_dst;
 };
 
 // ------------------
 
-/** A sorted dictionary of FilePair objects. */
-class FilePairDict : public SDict<FilePair>
+/** A linked map of file pairs */
+class FilePairLinkedMap : public LinkedMap<FilePair>
 {
-  public:
-    FilePairDict(uint size) : SDict<FilePair>(size) {}
-  private:
-    int compareValues(const FilePair *item1,const FilePair *item2) const;
 };
 
 // ------------------
@@ -80,9 +75,9 @@ class UsedDir
      * @param isInheritedByDependent true if dependency was inherited by dependent
      * @param isInheritedByDependee true if dependency was inherited by dependee
      */
-    void addFileDep(FileDef *srcFd,FileDef *dstFd, const bool isInheritedByDependent, const bool isInheritedByDependee);
+    void addFileDep(const FileDef *srcFd,const FileDef *dstFd, const bool isInheritedByDependent, const bool isInheritedByDependee);
     FilePair *findFilePair(const char *name);
-    const FilePairDict &filePairs() const { return m_filePairs; }
+    const FilePairLinkedMap &filePairs() const { return m_filePairs; }
     const DirDef *dir() const { return m_dir; }
     /** @return true if all file dependencies were inherited by their dependents */
     bool isAllDependentsInherited() const;
@@ -98,7 +93,7 @@ class UsedDir
 
   private:
     const DirDef *m_dir;
-    FilePairDict m_filePairs;
+    FilePairLinkedMap m_filePairs;
 
     /**
      * @name Markers for directory dependency inheritance
@@ -149,8 +144,8 @@ class DirDef : public DefinitionMutable, public Definition
     virtual QCString displayName(bool=TRUE) const = 0;
     virtual const QCString &shortName() const = 0;
     virtual void addSubDir(DirDef *subdir) = 0;
-    virtual FileList *   getFiles() const = 0;
-    virtual void addFile(FileDef *fd) = 0;
+    virtual const FileList &getFiles() const = 0;
+    virtual void addFile(const FileDef *fd) = 0;
     virtual const DirList &subDirs() const = 0;
     virtual bool isCluster() const = 0;
     virtual int level() const = 0;
@@ -170,8 +165,8 @@ class DirDef : public DefinitionMutable, public Definition
     virtual void sort() = 0;
     virtual void setParent(DirDef *parent) = 0;
     virtual void setLevel() = 0;
-    virtual void addUsesDependency(DirDef *usedDir,FileDef *srcFd,
-                           FileDef *dstFd,const bool inheritedByDependent, const bool inheritedByDependee) = 0;
+    virtual void addUsesDependency(const DirDef *usedDir,const FileDef *srcFd,
+                                   const FileDef *dstFd,const bool inheritedByDependent, const bool inheritedByDependee) = 0;
     virtual void computeDependencies() = 0;
 };
 

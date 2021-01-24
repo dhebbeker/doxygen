@@ -84,15 +84,13 @@ static bool supportedHtmlAttribute(const QCString &name)
 }
 
 
-void DocbookDocVisitor::visitCaption(const QList<DocNode> &children)
+void DocbookDocVisitor::visitCaption(const DocNodeList &children)
 {
-  QListIterator<DocNode> cli(children);
-  DocNode *n;
-  for (cli.toFirst();(n=cli.current());++cli) n->accept(this);
+  for (const auto &n : children) n->accept(this);
 }
 
 void DocbookDocVisitor::visitPreStart(FTextStream &t,
-                   const QList<DocNode> &children,
+                   const DocNodeList &children,
                    bool hasCaption,
                    const QCString &name,
                    const QCString &width,
@@ -395,7 +393,7 @@ DB_VIS_C
     case DocVerbatim::PlantUML:
       {
         static QCString docbookOutput = Config_getString(DOCBOOK_OUTPUT);
-        QCString baseName = PlantumlManager::instance()->writePlantUMLSource(docbookOutput,s->exampleFile(),s->text(),PlantumlManager::PUML_BITMAP);
+        QCString baseName = PlantumlManager::instance().writePlantUMLSource(docbookOutput,s->exampleFile(),s->text(),PlantumlManager::PUML_BITMAP);
         QCString shortName = baseName;
         int i;
         if ((i=shortName.findRev('/'))!=-1)
@@ -513,7 +511,7 @@ DB_VIS_C
     {
       m_t << "<programlisting>";
     }
-    pushEnabled();
+    pushHidden(m_hide);
     m_hide = TRUE;
   }
   QCString locLangExt = getFileNameExtension(op->includeFileName());
@@ -521,7 +519,7 @@ DB_VIS_C
   SrcLangExt langExt = getLanguageFromFileName(locLangExt);
   if (op->type()!=DocIncOperator::Skip)
   {
-    popEnabled();
+    m_hide = popHidden();
     if (!m_hide)
     {
       FileDef *fd = 0;
@@ -543,12 +541,12 @@ DB_VIS_C
                                        );
       if (fd) delete fd;
     }
-    pushEnabled();
+    pushHidden(m_hide);
     m_hide=TRUE;
   }
   if (op->isLast())
   {
-    popEnabled();
+    m_hide = popHidden();
     if (!m_hide) m_t << "</programlisting>";
   }
   else
@@ -1009,7 +1007,7 @@ DB_VIS_C
   m_bodySet.push(false);
   if (m_hide) return;
   m_t << "<informaltable frame=\"all\">" << endl;
-  m_t << "    <tgroup cols=\"" << t->numColumns() << "\" align=\"left\" colsep=\"1\" rowsep=\"1\">" << endl;
+  m_t << "    <tgroup cols=\"" << (unsigned int)t->numColumns() << "\" align=\"left\" colsep=\"1\" rowsep=\"1\">" << endl;
   for (uint i = 0; i <t->numColumns(); i++)
   {
     // do something with colwidth based of cell width specification (be aware of possible colspan in the header)?
@@ -1047,14 +1045,12 @@ DB_VIS_C
 
   m_t << "      <row ";
 
-  HtmlAttribListIterator li(tr->attribs());
-  HtmlAttrib *opt;
-  for (li.toFirst();(opt=li.current());++li)
+  for (const auto &opt : tr->attribs())
   {
-    if (supportedHtmlAttribute(opt->name))
+    if (supportedHtmlAttribute(opt.name))
     {
       // process supported attributes only
-      m_t << " " << opt->name << "='" << convertToDocBook(opt->value) << "'";
+      m_t << " " << opt.name << "='" << convertToDocBook(opt.value) << "'";
     }
   }
   m_t << ">\n";
@@ -1079,35 +1075,33 @@ DB_VIS_C
   if (m_hide) return;
   m_t << "<entry";
 
-  HtmlAttribListIterator li(c->attribs());
-  HtmlAttrib *opt;
-  for (li.toFirst();(opt=li.current());++li)
+  for (const auto &opt : c->attribs())
   {
-    if (opt->name=="colspan")
+    if (opt.name=="colspan")
     {
       m_t << " namest='c" << m_colCnt << "'";
-      int cols = opt->value.toInt();
+      int cols = opt.value.toInt();
       m_colCnt += (cols - 1);
       m_t << " nameend='c" << m_colCnt << "'";
     }
-    else if (opt->name=="rowspan")
+    else if (opt.name=="rowspan")
     {
-      int extraRows = opt->value.toInt() - 1;
+      int extraRows = opt.value.toInt() - 1;
       m_t << " morerows='" << extraRows << "'";
     }
-    else if (opt->name=="class")
+    else if (opt.name=="class")
     {
-      if (opt->value.left(13)=="markdownTable") // handle markdown generated attributes
+      if (opt.value.left(13)=="markdownTable") // handle markdown generated attributes
       {
-        if (opt->value.right(5)=="Right")
+        if (opt.value.right(5)=="Right")
         {
           m_t << " align='right'";
         }
-        else if (opt->value.right(4)=="Left")
+        else if (opt.value.right(4)=="Left")
         {
           m_t << " align='left'";
         }
-        else if (opt->value.right(6)=="Center")
+        else if (opt.value.right(6)=="Center")
         {
           m_t << " align='center'";
         }
@@ -1115,13 +1109,13 @@ DB_VIS_C
       }
       else
       {
-        m_t << " class='" << convertToDocBook(opt->value) << "'";
+        m_t << " class='" << convertToDocBook(opt.value) << "'";
       }
     }
-    else if (supportedHtmlAttribute(opt->name))
+    else if (supportedHtmlAttribute(opt.name))
     {
       // process supported attributes only
-      m_t << " " << opt->name << "='" << convertToDocBook(opt->value) << "'";
+      m_t << " " << opt.name << "='" << convertToDocBook(opt.value) << "'";
     }
   }
   m_t << ">";
@@ -1207,7 +1201,7 @@ DB_VIS_C
   }
   else
   {
-    pushEnabled();
+    pushHidden(m_hide);
     m_hide=TRUE;
   }
 }
@@ -1249,7 +1243,7 @@ DB_VIS_C
   }
   else
   {
-    popEnabled();
+    m_hide = popHidden();
   }
 }
 
@@ -1443,31 +1437,27 @@ DB_VIS_C
 
   if (sect && sect->hasTypeSpecifier())
   {
-    QListIterator<DocNode> li(pl->paramTypes());
-    DocNode *type;
     m_t << "                                <entry>";
-    for (li.toFirst();(type=li.current());++li)
+    for (const auto &type : pl->paramTypes())
     {
       if (type->kind()==DocNode::Kind_Word)
       {
-        visit((DocWord*)type);
+        visit((DocWord*)type.get());
       }
       else if (type->kind()==DocNode::Kind_LinkedWord)
       {
-        visit((DocLinkedWord*)type);
+        visit((DocLinkedWord*)type.get());
       }
       else if (type->kind()==DocNode::Kind_Sep)
       {
-        m_t << " " << ((DocSeparator *)type)->chars() << " ";
+        m_t << " " << ((DocSeparator *)type.get())->chars() << " ";
       }
 
     }
     m_t << "                                </entry>";
   }
 
-  QListIterator<DocNode> li(pl->parameters());
-  DocNode *param;
-  if (!li.toFirst())
+  if (pl->parameters().empty())
   {
     m_t << "                                <entry></entry>" << endl;
   }
@@ -1475,7 +1465,7 @@ DB_VIS_C
   {
     m_t << "                                <entry>";
     int cnt = 0;
-    for (li.toFirst();(param=li.current());++li)
+    for (const auto &param : pl->parameters())
     {
       if (cnt)
       {
@@ -1483,11 +1473,11 @@ DB_VIS_C
       }
       if (param->kind()==DocNode::Kind_Word)
       {
-        visit((DocWord*)param);
+        visit((DocWord*)param.get());
       }
       else if (param->kind()==DocNode::Kind_LinkedWord)
       {
-        visit((DocLinkedWord*)param);
+        visit((DocLinkedWord*)param.get());
       }
       cnt++;
     }
@@ -1616,19 +1606,6 @@ DB_VIS_C
   m_t << "</link>";
 }
 
-void DocbookDocVisitor::pushEnabled()
-{
-DB_VIS_C
-  m_enabled.push(m_hide);
-}
-
-void DocbookDocVisitor::popEnabled()
-{
-DB_VIS_C
-  m_hide=m_enabled.top();
-  m_enabled.pop();
-}
-
 void DocbookDocVisitor::writeMscFile(const QCString &baseName, DocVerbatim *s)
 {
 DB_VIS_C
@@ -1655,7 +1632,7 @@ DB_VIS_C
     shortName=shortName.right((int)shortName.length()-i-1);
   }
   QCString outDir = Config_getString(DOCBOOK_OUTPUT);
-  PlantumlManager::instance()->generatePlantUMLOutput(baseName,outDir,PlantumlManager::PUML_BITMAP);
+  PlantumlManager::instance().generatePlantUMLOutput(baseName,outDir,PlantumlManager::PUML_BITMAP);
   visitPreStart(m_t, s->children(), s->hasCaption(), s->relPath() + shortName + ".png", s->width(),s->height());
   visitCaption(s->children());
   visitPostEnd(m_t, s->hasCaption());
@@ -1665,7 +1642,7 @@ void DocbookDocVisitor::startMscFile(const QCString &fileName,
     const QCString &width,
     const QCString &height,
     bool hasCaption,
-    const QList<DocNode> &children
+    const DocNodeList &children
     )
 {
 DB_VIS_C
@@ -1714,7 +1691,7 @@ void DocbookDocVisitor::startDiaFile(const QCString &fileName,
     const QCString &width,
     const QCString &height,
     bool hasCaption,
-    const QList<DocNode> &children
+    const DocNodeList &children
     )
 {
 DB_VIS_C
@@ -1763,7 +1740,7 @@ void DocbookDocVisitor::startDotFile(const QCString &fileName,
     const QCString &width,
     const QCString &height,
     bool hasCaption,
-    const QList<DocNode> &children
+    const DocNodeList &children
     )
 {
 DB_VIS_C

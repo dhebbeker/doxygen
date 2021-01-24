@@ -27,8 +27,8 @@
   
 #include <stdio.h>
 #include <stdlib.h>
+#include <stack>
 
-#include <qstack.h>
 #include <qregexp.h>
 #include <qtextstream.h>
 #include <qglobal.h>
@@ -80,8 +80,8 @@ struct commentcnvYY_state
   QCString fileName;
   int      lineNr = 0;
   int      condCtx = 0;
-  QStack<CondCtx> condStack;
-  QStack<CommentCtx> commentStack;
+  std::stack<CondCtx> condStack;
+  std::stack<int> commentStack;
   QCString blockName;
   int      lastCommentContext = 0;
   bool     inSpecialComment = FALSE;
@@ -117,6 +117,7 @@ static void handleCondSectionId(yyscan_t yyscanner,const char *expression);
 static void replaceAliases(yyscan_t yyscanner,const char *s);
 static yy_size_t yyread(yyscan_t yyscanner,char *buf,yy_size_t max_size);
 static void replaceComment(yyscan_t yyscanner,int offset);
+static void clearCommentStack(yyscan_t yyscanner);
 
 
 
@@ -191,10 +192,10 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
 				     {
                                        yyextra->pythonDocString = TRUE;
                                        yyextra->nestingCount=1;
-                                       yyextra->commentStack.clear(); /*  to be on the save side */
+                                       clearCommentStack(yyscanner); /*  to be on the save side */
                                        copyToOutput(yyscanner,yytext,(int)yyleng);
 				       BEGIN(CComment);
-                                       yyextra->commentStack.push(new CommentCtx(yyextra->lineNr));
+                                       yyextra->commentStack.push(yyextra->lineNr);
 				     }
                                    }
 <Scan>![><!]/.*\n	   {
@@ -206,9 +207,9 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
 				     {
                                        copyToOutput(yyscanner,yytext,(int)yyleng); 
                                        yyextra->nestingCount=0; // Fortran doesn't have an end comment
-                                       yyextra->commentStack.clear(); /*  to be on the save side */
+                                       clearCommentStack(yyscanner); /*  to be on the save side */
 				       BEGIN(CComment);
-                                       yyextra->commentStack.push(new CommentCtx(yyextra->lineNr));
+                                       yyextra->commentStack.push(yyextra->lineNr);
 				     }
   				   }
 <Scan>[Cc\*][><!]/.*\n	   {
@@ -223,9 +224,9 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
                                        {
                                          copyToOutput(yyscanner,yytext,(int)yyleng); 
                                          yyextra->nestingCount=0; // Fortran doesn't have an end comment
-                                         yyextra->commentStack.clear(); /* to be on the safe side */
+                                         clearCommentStack(yyscanner); /*  to be on the save side */
 				         BEGIN(CComment);
-                                         yyextra->commentStack.push(new CommentCtx(yyextra->lineNr));
+                                         yyextra->commentStack.push(yyextra->lineNr);
 				       }
 				       else
 				       {
@@ -329,10 +330,10 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
                                      }
   			             yyextra->specialComment=(int)yyleng==3;
                                      yyextra->nestingCount=1;
-                                     yyextra->commentStack.clear(); /*  to be on the save side */
+                                     clearCommentStack(yyscanner); /*  to be on the save side */
                                      copyToOutput(yyscanner,yytext,(int)yyleng); 
 				     BEGIN(CComment); 
-                                     yyextra->commentStack.push(new CommentCtx(yyextra->lineNr));
+                                     yyextra->commentStack.push(yyextra->lineNr);
                                    }
 <Scan>"#"("#")?		           {
                                      if (yyextra->lang!=SrcLangExt_Python)
@@ -343,9 +344,9 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
 				     {
                                        copyToOutput(yyscanner,yytext,(int)yyleng); 
                                        yyextra->nestingCount=0; // Python doesn't have an end comment for #
-                                       yyextra->commentStack.clear(); /*  to be on the save side */
+                                       clearCommentStack(yyscanner); /*  to be on the save side */
 				       BEGIN(CComment);
-                                       yyextra->commentStack.push(new CommentCtx(yyextra->lineNr));
+                                       yyextra->commentStack.push(yyextra->lineNr);
 				     }
   				   }
 <Scan>"--"[^!][^\n]*		   {
@@ -368,9 +369,9 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
                                        yyextra->vhdl = TRUE;
                                        copyToOutput(yyscanner,yytext,(int)yyleng); 
                                        yyextra->nestingCount=0;  // VHDL doesn't have an end comment
-                                       yyextra->commentStack.clear(); /*  to be on the save side */
+                                       clearCommentStack(yyscanner); /*  to be on the save side */
 				       BEGIN(CComment);
-                                       yyextra->commentStack.push(new CommentCtx(yyextra->lineNr));
+                                       yyextra->commentStack.push(yyextra->lineNr);
 				     }
   				   }
 <Scan>![><!]		           {
@@ -382,9 +383,9 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
 				     {
                                        copyToOutput(yyscanner,yytext,(int)yyleng); 
                                        yyextra->nestingCount=0;  // Fortran doesn't have an end comment
-                                       yyextra->commentStack.clear(); /*  to be on the save side */
+                                       clearCommentStack(yyscanner); /*  to be on the save side */
 				       BEGIN(CComment);
-                                       yyextra->commentStack.push(new CommentCtx(yyextra->lineNr));
+                                       yyextra->commentStack.push(yyextra->lineNr);
 				     }
   				   }
 <CComment,ReadLine>{MAILADR}      |
@@ -627,7 +628,7 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
 				       REJECT;
                                      }
                                      yyextra->nestingCount++;
-                                     yyextra->commentStack.push(new CommentCtx(yyextra->lineNr));
+                                     yyextra->commentStack.push(yyextra->lineNr);
                                      copyToOutput(yyscanner,yytext,(int)yyleng);
                                    }
 <CComment>"*"+"/"                  { /* end of C comment */
@@ -647,7 +648,7 @@ NUMBER {INTEGER_NUMBER}|{FLOAT_NUMBER}
                                        else
                                        {
                                          //yyextra->nestingCount--;
-                                         delete yyextra->commentStack.pop();
+                                         yyextra->commentStack.pop();
                                        }
 				     }
                                    }
@@ -1016,13 +1017,19 @@ static inline void copyToOutput(yyscan_t yyscanner,const char *s,int len)
   }
 }
 
+static void clearCommentStack(yyscan_t yyscanner)
+{
+  struct yyguts_t *yyg = (struct yyguts_t*)yyscanner;
+  while (!yyextra->commentStack.empty()) yyextra->commentStack.pop();
+}
+
 static void startCondSection(yyscan_t yyscanner,const char *sectId)
 {
   struct yyguts_t *yyg = (struct yyguts_t*)yyscanner;
   //printf("startCondSection: skip=%d stack=%d\n",g_skip,g_condStack.count());
   CondParser prs;
   bool expResult = prs.parse(yyextra->fileName,yyextra->lineNr,sectId);
-  yyextra->condStack.push(new CondCtx(yyextra->lineNr,sectId,yyextra->skip));
+  yyextra->condStack.push(CondCtx(yyextra->lineNr,sectId,yyextra->skip));
   if (!expResult) // not enabled
   {
     yyextra->skip=TRUE;
@@ -1032,15 +1039,16 @@ static void startCondSection(yyscan_t yyscanner,const char *sectId)
 static void endCondSection(yyscan_t yyscanner)
 {
   struct yyguts_t *yyg = (struct yyguts_t*)yyscanner;
-  if (yyextra->condStack.isEmpty())
+  if (yyextra->condStack.empty())
   {
     warn(yyextra->fileName,yyextra->lineNr,"Found \\endcond command without matching \\cond");
     yyextra->skip=FALSE;
   }
   else
   {
-    CondCtx *ctx = yyextra->condStack.pop();
-    yyextra->skip=ctx->skip;
+    const CondCtx &ctx = yyextra->condStack.top();
+    yyextra->skip=ctx.skip;
+    yyextra->condStack.pop();
   }
   //printf("endCondSection: skip=%d stack=%d\n",g_skip,g_condStack.count());
 }
@@ -1144,10 +1152,8 @@ void convertCppComments(BufStr *inBuf,BufStr *outBuf,const char *fileName)
   yyextra->lang = getLanguageFromFileName(fileName);
   yyextra->pythonDocString = FALSE;
   yyextra->lineNr   = 1;
-  yyextra->condStack.clear();
-  yyextra->condStack.setAutoDelete(TRUE);
-  yyextra->commentStack.clear();
-  yyextra->commentStack.setAutoDelete(TRUE);
+  while (!yyextra->condStack.empty()) yyextra->condStack.pop();
+  clearCommentStack(yyscanner);
   yyextra->vhdl = FALSE;
 
   printlex(yy_flex_debug, TRUE, __FILE__, fileName);
@@ -1162,38 +1168,38 @@ void convertCppComments(BufStr *inBuf,BufStr *outBuf,const char *fileName)
   {
     yyextra->nestingCount=0;
     BEGIN(CComment);
-    yyextra->commentStack.push(new CommentCtx(yyextra->lineNr));
+    yyextra->commentStack.push(yyextra->lineNr);
   }
   else
   {
     BEGIN(Scan);
   }
   yylex(yyscanner);
-  while (!yyextra->condStack.isEmpty())
+  while (!yyextra->condStack.empty())
   {
-    CondCtx *ctx = yyextra->condStack.pop();
+    const CondCtx &ctx = yyextra->condStack.top();
     QCString sectionInfo = " ";
-    if (ctx->sectionId!=" ") sectionInfo.sprintf(" with label '%s' ",ctx->sectionId.stripWhiteSpace().data());
-    warn(yyextra->fileName,ctx->lineNr,"Conditional section%sdoes not have "
+    if (ctx.sectionId!=" ") sectionInfo.sprintf(" with label '%s' ",ctx.sectionId.stripWhiteSpace().data());
+    warn(yyextra->fileName,ctx.lineNr,"Conditional section%sdoes not have "
 	"a corresponding \\endcond command within this file.",sectionInfo.data());
+    yyextra->condStack.pop();
   }
   if (yyextra->nestingCount>0 && yyextra->lang!=SrcLangExt_Markdown && yyextra->lang!=SrcLangExt_Fortran)
   {
     QCString tmp= "(probable line reference: ";
     bool first = TRUE;
-    while (!yyextra->commentStack.isEmpty())
+    while (!yyextra->commentStack.empty())
     {
-      CommentCtx *ctx = yyextra->commentStack.pop();
+      int lineNr = yyextra->commentStack.top();
       if (!first) tmp += ", ";
-      tmp += QCString().setNum(ctx->lineNr);
+      tmp += QCString().setNum(lineNr);
       first = FALSE;
-      delete ctx;
+      yyextra->commentStack.pop();
     }
     tmp += ")";
     warn(yyextra->fileName,yyextra->lineNr,"Reached end of file while still inside a (nested) comment. "
         "Nesting level %d %s",yyextra->nestingCount,tmp.data());
   }
-  yyextra->commentStack.clear();
   yyextra->nestingCount = 0;
   if (Debug::isFlagSet(Debug::CommentCnv))
   {

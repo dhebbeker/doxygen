@@ -298,7 +298,8 @@ static bool memberVisibleInIndex(const MemberDef *md)
   bool extractStatic = Config_getBool(EXTRACT_STATIC);
   return (!isAnonymous &&
       (!hideUndocMembers || md->hasDocumentation()) &&
-      (!md->isStatic() || extractStatic)
+      (!md->isStatic() || extractStatic) &&
+      md->isLinkable()
      );
 }
 
@@ -306,8 +307,8 @@ static void writeMemberToIndex(const Definition *def,const MemberDef *md,bool ad
 {
   bool isAnonymous = md->isAnonymous();
   bool hideUndocMembers = Config_getBool(HIDE_UNDOC_MEMBERS);
-  const MemberList *enumList = md->enumFieldList();
-  bool isDir = enumList!=0 && md->isEnumerate();
+  const MemberList &enumList = md->enumFieldList();
+  bool isDir = !enumList.empty() && md->isEnumerate();
   if (md->getOuterScope()==def || md->getOuterScope()==Doxygen::globalScope)
   {
     Doxygen::indexList->addContentsItem(isDir,
@@ -324,9 +325,7 @@ static void writeMemberToIndex(const Definition *def,const MemberDef *md,bool ad
     {
       Doxygen::indexList->incContentsDepth();
     }
-    MemberListIterator emli(*enumList);
-    MemberDef *emd;
-    for (emli.toFirst();(emd=emli.current());++emli)
+    for (const auto &emd : enumList)
     {
       if (!hideUndocMembers || emd->hasDocumentation())
       {
@@ -370,19 +369,15 @@ void addMembersToIndex(T *def,LayoutDocManager::LayoutPart part,
   if (hasMembers || numClasses>0)
   {
     Doxygen::indexList->incContentsDepth();
-    QListIterator<LayoutDocEntry> eli(LayoutDocManager::instance().docEntries(part));
-    LayoutDocEntry *lde;
-    for (eli.toFirst();(lde=eli.current());++eli)
+    for (const auto &lde : LayoutDocManager::instance().docEntries(part))
     {
       if (lde->kind()==LayoutDocEntry::MemberDef)
       {
-        LayoutDocEntryMemberDef *lmd = (LayoutDocEntryMemberDef*)lde;
+        const LayoutDocEntryMemberDef *lmd = (const LayoutDocEntryMemberDef*)lde.get();
         MemberList *ml = def->getMemberList(lmd->type);
         if (ml)
         {
-          MemberListIterator mi(*ml);
-          MemberDef *md;
-          for (mi.toFirst();(md=mi.current());++mi)
+          for (const auto &md : *ml)
           {
             if (memberVisibleInIndex(md))
             {
@@ -538,9 +533,7 @@ static bool dirHasVisibleChildren(const DirDef *dd)
 {
   if (dd->hasDocumentation()) return TRUE;
 
-  QListIterator<FileDef> fli(*dd->getFiles());
-  FileDef *fd;
-  for (fli.toFirst();(fd=fli.current());++fli)
+  for (const auto &fd : dd->getFiles())
   {
     bool genSourceFile;
     if (fileVisibleInIndex(fd,genSourceFile))
@@ -581,9 +574,9 @@ static void writeDirTreeNode(OutputList &ol, const DirDef *dd, int level, FTVHel
   }
 
   static bool tocExpand = TRUE; //Config_getBool(TOC_EXPAND);
-  bool isDir = dd->subDirs().size()>0 || // there are subdirs
+  bool isDir = !dd->subDirs().empty() ||  // there are subdirs
                (tocExpand &&              // or toc expand and
-                dd->getFiles() && dd->getFiles()->count()>0 // there are files
+                !dd->getFiles().empty()   // there are files
                );
   //printf("gd='%s': pageDict=%d\n",gd->name().data(),gd->pageDict->count());
   if (addToIndex)
@@ -620,13 +613,10 @@ static void writeDirTreeNode(OutputList &ol, const DirDef *dd, int level, FTVHel
     endIndexHierarchy(ol,level+1);
   }
 
-  FileList *fileList=dd->getFiles();
   int fileCount=0;
-  if (fileList && fileList->count()>0)
+  if (!dd->getFiles().empty())
   {
-    QListIterator<FileDef> it(*fileList);
-    FileDef *fd;
-    for (;(fd=it.current());++it)
+    for (const auto &fd : dd->getFiles())
     {
       //static bool allExternals = Config_getBool(ALLEXTERNALS);
       //if ((allExternals && fd->isLinkable()) || fd->isLinkableInProject())
@@ -646,7 +636,7 @@ static void writeDirTreeNode(OutputList &ol, const DirDef *dd, int level, FTVHel
     if (fileCount>0)
     {
       startIndexHierarchy(ol,level+1);
-      for (it.toFirst();(fd=it.current());++it)
+      for (const auto &fd : dd->getFiles())
       {
         bool doc,src;
         doc = fileVisibleInIndex(fd,src);
@@ -682,9 +672,7 @@ static void writeDirTreeNode(OutputList &ol, const DirDef *dd, int level, FTVHel
     // write files of this directory
     if (fileCount>0)
     {
-      QListIterator<FileDef> it(*fileList);
-      FileDef *fd;
-      for (;(fd=it.current());++it)
+      for (const auto &fd : dd->getFiles())
       {
         //static bool allExternals = Config_getBool(ALLEXTERNALS);
         //if ((allExternals && fd->isLinkable()) || fd->isLinkableInProject())
@@ -1288,7 +1276,7 @@ static void countFiles(int &htmlFiles,int &files)
   }
 }
 
-static void writeSingleFileIndex(OutputList &ol,FileDef *fd)
+static void writeSingleFileIndex(OutputList &ol,const FileDef *fd)
 {
   //printf("Found filedef %s\n",fd->name().data());
   bool doc = fd->isLinkableInProject();
@@ -1409,12 +1397,12 @@ static void writeFileIndex(OutputList &ol)
   ol.pushGeneratorState();
   ol.disable(OutputGenerator::Html);
 
-  OutputNameDict outputNameDict(1009);
-  OutputNameList outputNameList;
-  outputNameList.setAutoDelete(TRUE);
-
+  ol.startIndexList();
   if (Config_getBool(FULL_PATH_NAMES))
   {
+    std::unordered_map<std::string,size_t> pathMap;
+    std::vector<FilesInDir> outputFiles;
+
     // re-sort input files in (dir,file) output order instead of (file,dir) input order
     for (const auto &fn : *Doxygen::inputNameLinkedMap)
     {
@@ -1422,36 +1410,31 @@ static void writeFileIndex(OutputList &ol)
       {
         QCString path=fd->getPath();
         if (path.isEmpty()) path="[external]";
-        FileList *fl = outputNameDict.find(path);
-        if (fl)
+        auto it = pathMap.find(path.str());
+        if (it!=pathMap.end())
         {
-          fl->append(fd.get());
-          //printf("+ inserting %s---%s\n",fd->getPath().data(),fd->name().data());
+          outputFiles.at(it->second).files.push_back(fd.get());
         }
         else
         {
-          //printf("o inserting %s---%s\n",fd->getPath().data(),fd->name().data());
-          fl = new FileList(path);
-          fl->append(fd.get());
-          outputNameList.append(fl);
-          outputNameDict.insert(path,fl);
+          pathMap.insert(std::make_pair(path.str(),outputFiles.size()));
+          outputFiles.emplace_back(path);
         }
       }
     }
-  }
-
-  ol.startIndexList();
-  if (Config_getBool(FULL_PATH_NAMES))
-  {
-    outputNameList.sort();
-    QListIterator<FileList> fnli(outputNameList);
-    FileList *fl;
-    for (fnli.toFirst();(fl=fnli.current());++fnli)
+    // sort the files by path
+    std::sort(outputFiles.begin(),
+              outputFiles.end(),
+              [](const auto &fp1,const auto &fp2) { return qstricmp(fp1.path,fp2.path)<0; });
+    // sort the files inside the directory by name
+    for (auto &fp : outputFiles)
     {
-      fl->sort();
-      QListIterator<FileDef> it(*fl);
-      FileDef *fd;
-      for (;(fd=it.current());++it)
+      std::sort(fp.files.begin(), fp.files.end(), compareFileDefs);
+    }
+    // write the results
+    for (const auto &fp : outputFiles)
+    {
+      for (const auto &fd : fp.files)
       {
         writeSingleFileIndex(ol,fd);
       }
@@ -1461,7 +1444,7 @@ static void writeFileIndex(OutputList &ol)
   {
     for (const auto &fn : *Doxygen::inputNameLinkedMap)
     {
-      for (const auto &fd : *fn)
+     for (const auto &fd : *fn)
       {
         writeSingleFileIndex(ol,fd.get());
       }
@@ -1583,19 +1566,15 @@ static void writeClassTree(const ListType &cl,FTVHelp *ftv,bool addToIndex,bool 
 static int countVisibleMembers(const NamespaceDef *nd)
 {
   int count=0;
-  QListIterator<LayoutDocEntry> eli(LayoutDocManager::instance().docEntries(LayoutDocManager::Namespace));
-  LayoutDocEntry *lde;
-  for (eli.toFirst();(lde=eli.current());++eli)
+  for (const auto &lde : LayoutDocManager::instance().docEntries(LayoutDocManager::Namespace))
   {
     if (lde->kind()==LayoutDocEntry::MemberDef)
     {
-      LayoutDocEntryMemberDef *lmd = (LayoutDocEntryMemberDef*)lde;
+      const LayoutDocEntryMemberDef *lmd = (const LayoutDocEntryMemberDef*)lde.get();
       MemberList *ml = nd->getMemberList(lmd->type);
       if (ml)
       {
-        MemberListIterator mi(*ml);
-        MemberDef *md;
-        for (mi.toFirst();(md=mi.current());++mi)
+        for (const auto &md : *ml)
         {
           if (memberVisibleInIndex(md))
           {
@@ -1610,19 +1589,15 @@ static int countVisibleMembers(const NamespaceDef *nd)
 
 static void writeNamespaceMembers(const NamespaceDef *nd,bool addToIndex)
 {
-  QListIterator<LayoutDocEntry> eli(LayoutDocManager::instance().docEntries(LayoutDocManager::Namespace));
-  LayoutDocEntry *lde;
-  for (eli.toFirst();(lde=eli.current());++eli)
+  for (const auto &lde : LayoutDocManager::instance().docEntries(LayoutDocManager::Namespace))
   {
     if (lde->kind()==LayoutDocEntry::MemberDef)
     {
-      LayoutDocEntryMemberDef *lmd = (LayoutDocEntryMemberDef*)lde;
+      const LayoutDocEntryMemberDef *lmd = (const LayoutDocEntryMemberDef*)lde.get();
       MemberList *ml = nd->getMemberList(lmd->type);
       if (ml)
       {
-        MemberListIterator mi(*ml);
-        MemberDef *md;
-        for (mi.toFirst();(md=mi.current());++mi)
+        for (const auto &md : *ml)
         {
           //printf("  member %s visible=%d\n",md->name().data(),memberVisibleInIndex(md));
           if (memberVisibleInIndex(md))
@@ -3763,12 +3738,12 @@ static void writeGroupTreeNode(OutputList &ol, const GroupDef *gd, int level, FT
       {
         if (ml->listType()&MemberListType_documentationLists)
         {
-          numSubItems += ml->count();
+          numSubItems += ml->size();
         }
       }
       numSubItems += gd->getNamespaces().size();
       numSubItems += gd->getClasses().size();
-      numSubItems += gd->getFiles()->count();
+      numSubItems += gd->getFiles().size();
       numSubItems += gd->getDirs().size();
       numSubItems += gd->getPages().size();
     }
@@ -3804,22 +3779,18 @@ static void writeGroupTreeNode(OutputList &ol, const GroupDef *gd, int level, FT
       ol.endTypewriter();
     }
 
-    QListIterator<LayoutDocEntry> eli(LayoutDocManager::instance().docEntries(LayoutDocManager::Group));
-    LayoutDocEntry *lde;
-    for (eli.toFirst();(lde=eli.current());++eli)
+    for (const auto &lde : LayoutDocManager::instance().docEntries(LayoutDocManager::Group))
     {
       if (lde->kind()==LayoutDocEntry::MemberDef && addToIndex)
       {
-        LayoutDocEntryMemberDef *lmd = (LayoutDocEntryMemberDef*)lde;
+        const LayoutDocEntryMemberDef *lmd = (const LayoutDocEntryMemberDef*)lde.get();
         MemberList *ml = gd->getMemberList(lmd->type);
         if (ml)
         {
-          MemberListIterator mi(*ml);
-          MemberDef *md;
-          for (mi.toFirst();(md=mi.current());++mi)
+          for (const auto &md : *ml)
           {
-            const MemberList *enumList = md->enumFieldList();
-            isDir = enumList!=0 && md->isEnumerate();
+            const MemberList &enumList = md->enumFieldList();
+            isDir = !enumList.empty() && md->isEnumerate();
             if (md->isVisible() && !md->isAnonymous())
             {
               Doxygen::indexList->addContentsItem(isDir,
@@ -3829,9 +3800,7 @@ static void writeGroupTreeNode(OutputList &ol, const GroupDef *gd, int level, FT
             if (isDir)
             {
               Doxygen::indexList->incContentsDepth();
-              MemberListIterator emli(*enumList);
-              MemberDef *emd;
-              for (emli.toFirst();(emd=emli.current());++emli)
+              for (const auto &emd : enumList)
               {
                 if (emd->isVisible())
                 {
@@ -3884,9 +3853,7 @@ static void writeGroupTreeNode(OutputList &ol, const GroupDef *gd, int level, FT
       }
       else if (lde->kind()==LayoutDocEntry::GroupFiles && addToIndex)
       {
-        QListIterator<FileDef> it(*gd->getFiles());
-        FileDef *fd;
-        for (;(fd=it.current());++it)
+        for (const auto &fd : gd->getFiles())
         {
           if (fd->isVisible())
           {
@@ -4069,17 +4036,15 @@ static void writeUserGroupStubPage(OutputList &ol,LayoutNavEntry *lne)
     ol.parseText(lne->title());
     endTitle(ol,0,0);
     ol.startContents();
-    QListIterator<LayoutNavEntry> li(lne->children());
-    LayoutNavEntry *entry;
     int count=0;
-    for (li.toFirst();(entry=li.current());++li)
+    for (const auto &entry: lne->children())
     {
       if (entry->visible()) count++;
     }
     if (count>0)
     {
       ol.writeString("<ul>\n");
-      for (li.toFirst();(entry=li.current());++li)
+      for (const auto &entry: lne->children())
       {
         if (entry->visible())
         {
@@ -4233,10 +4198,7 @@ static void writeIndex(OutputList &ol)
 
   ol.startFile("refman",0,0);
   ol.startIndexSection(isTitlePageStart);
-  if (!Config_getString(LATEX_HEADER).isEmpty())
-  {
-    ol.disable(OutputGenerator::Latex);
-  }
+  ol.disable(OutputGenerator::Latex);
   ol.disable(OutputGenerator::Docbook);
 
   if (projPrefix.isEmpty())
@@ -4477,12 +4439,10 @@ static void writeIndex(OutputList &ol)
 
 static QArray<bool> indexWritten;
 
-static void writeIndexHierarchyEntries(OutputList &ol,const QList<LayoutNavEntry> &entries)
+static void writeIndexHierarchyEntries(OutputList &ol,const LayoutNavEntryList &entries)
 {
   static bool sliceOpt = Config_getBool(OPTIMIZE_OUTPUT_SLICE);
-  QListIterator<LayoutNavEntry> li(entries);
-  LayoutNavEntry *lne;
-  for (li.toFirst();(lne=li.current());++li)
+  for (const auto &lne : entries)
   {
     LayoutNavEntry::Kind kind = lne->kind();
     uint index = (uint)kind;
@@ -4524,7 +4484,7 @@ static void writeIndexHierarchyEntries(OutputList &ol,const QList<LayoutNavEntry
                 Doxygen::indexList->incContentsDepth();
                 needsClosing=TRUE;
               }
-              if (LayoutDocManager::instance().rootNavEntry()->find(LayoutNavEntry::Namespaces)!=lne) // for backward compatibility with old layout file
+              if (LayoutDocManager::instance().rootNavEntry()->find(LayoutNavEntry::Namespaces)!=lne.get()) // for backward compatibility with old layout file
               {
                 msg("Generating namespace index...\n");
                 writeNamespaceIndex(ol);
@@ -4553,7 +4513,7 @@ static void writeIndexHierarchyEntries(OutputList &ol,const QList<LayoutNavEntry
             Doxygen::indexList->incContentsDepth();
             needsClosing=TRUE;
           }
-          if (LayoutDocManager::instance().rootNavEntry()->find(LayoutNavEntry::Classes)!=lne) // for backward compatibility with old layout file
+          if (LayoutDocManager::instance().rootNavEntry()->find(LayoutNavEntry::Classes)!=lne.get()) // for backward compatibility with old layout file
           {
             msg("Generating annotated compound index...\n");
             writeAnnotatedIndex(ol);
@@ -4684,7 +4644,7 @@ static void writeIndexHierarchyEntries(OutputList &ol,const QList<LayoutNavEntry
                 Doxygen::indexList->incContentsDepth();
                 needsClosing=TRUE;
               }
-              if (LayoutDocManager::instance().rootNavEntry()->find(LayoutNavEntry::Files)!=lne) // for backward compatibility with old layout file
+              if (LayoutDocManager::instance().rootNavEntry()->find(LayoutNavEntry::Files)!=lne.get()) // for backward compatibility with old layout file
               {
                 msg("Generating file index...\n");
                 writeFileIndex(ol);
@@ -4751,7 +4711,7 @@ static void writeIndexHierarchyEntries(OutputList &ol,const QList<LayoutNavEntry
             Doxygen::indexList->incContentsDepth();
             needsClosing=TRUE;
           }
-          writeUserGroupStubPage(ol,lne);
+          writeUserGroupStubPage(ol,lne.get());
           break;
         case LayoutNavEntry::None:
           assert(kind != LayoutNavEntry::None); // should never happen, means not properly initialized
@@ -4886,10 +4846,8 @@ void renderMemberIndicesAsJs(FTextStream &t,
 
 static bool renderQuickLinksAsJs(FTextStream &t,LayoutNavEntry *root,bool first)
 {
-  QListIterator<LayoutNavEntry> li(root->children());
-  LayoutNavEntry *entry;
   int count=0;
-  for (li.toFirst();(entry=li.current());++li)
+  for (const auto &entry : root->children())
   {
     if (entry->visible() && quickLinkVisible(entry->kind())) count++;
   }
@@ -4898,7 +4856,7 @@ static bool renderQuickLinksAsJs(FTextStream &t,LayoutNavEntry *root,bool first)
     bool firstChild = TRUE;
     if (!first) t << ",";
     t << "children:[" << endl;
-    for (li.toFirst();(entry=li.current());++li)
+    for (const auto &entry : root->children())
     {
       if (entry->visible() && quickLinkVisible(entry->kind()))
       {
@@ -4925,7 +4883,7 @@ static bool renderQuickLinksAsJs(FTextStream &t,LayoutNavEntry *root,bool first)
         }
         else // recursive into child list
         {
-          hasChildren = renderQuickLinksAsJs(t,entry,FALSE);
+          hasChildren = renderQuickLinksAsJs(t,entry.get(),FALSE);
         }
         if (hasChildren) t << "]";
         t << "}";

@@ -26,15 +26,14 @@
 #include <unordered_map>
 #include <algorithm>
 
-#include <qlist.h>
 #include <ctype.h>
 #include "types.h"
-#include "sortdict.h"
 #include "docparser.h"
 #include "classdef.h"
 #include "arguments.h"
 #include "containers.h"
 #include "namespacedef.h"
+#include "outputgen.h"
 
 //--------------------------------------------------------------------
 
@@ -47,9 +46,7 @@ class ArgumentList;
 class OutputList;
 class OutputDocInterface;
 class MemberDef;
-class ExampleSDict;
 class GroupDef;
-class NamespaceSDict;
 struct TagInfo;
 class PageDef;
 class SectionInfo;
@@ -168,8 +165,8 @@ QCString substituteClassNames(const QCString &s);
 
 
 QCString clearBlock(const char *s,const char *begin,const char *end);
-
-QCString selectBlock(const QCString& s,const QCString &name,bool which);
+QCString selectBlock(const QCString& s,const QCString &name,bool enable, OutputGenerator::OutputType o);
+QCString removeEmptyLines(const QCString &s);
 
 QCString resolveDefines(const char *n);
 
@@ -379,7 +376,7 @@ QCString extractAliasArgs(const QCString &args,int pos);
 int countAliasArguments(const QCString argList);
 
 QCString resolveAliasCmd(const QCString aliasCmd);
-QCString expandAlias(const QCString &aliasName,const QCString &aliasValue);
+std::string expandAlias(const std::string &aliasName,const std::string &aliasValue);
 
 void writeTypeConstraints(OutputList &ol,const Definition *d,const ArgumentList &al);
 

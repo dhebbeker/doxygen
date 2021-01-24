@@ -1554,83 +1554,6 @@ void trimBaseClassScope(const BaseClassList &bcl,QCString &s,int level=0)
   }
 }
 
-#if 0
-/*! if either t1 or t2 contains a namespace scope, then remove that
- *  scope. If neither or both have a namespace scope, t1 and t2 remain
- *  unchanged.
- */
-static void trimNamespaceScope(QCString &t1,QCString &t2,const QCString &nsName)
-{
-  int p1=t1.length();
-  int p2=t2.length();
-  for (;;)
-  {
-    int i1=p1==0 ? -1 : t1.findRev("::",p1);
-    int i2=p2==0 ? -1 : t2.findRev("::",p2);
-    if (i1==-1 && i2==-1)
-    {
-      return;
-    }
-    if (i1!=-1 && i2==-1) // only t1 has a scope
-    {
-      QCString scope=t1.left(i1);
-      replaceNamespaceAliases(scope,i1);
-
-      int so=nsName.length();
-      do
-      {
-        QCString fullScope=nsName.left(so);
-        if (!fullScope.isEmpty() && !scope.isEmpty()) fullScope+="::";
-        fullScope+=scope;
-        if (!fullScope.isEmpty() && Doxygen::namespaceSDict[fullScope]!=0) // scope is a namespace
-        {
-          t1 = t1.right(t1.length()-i1-2);
-          return;
-        }
-        if (so==0)
-        {
-          so=-1;
-        }
-        else if ((so=nsName.findRev("::",so-1))==-1)
-        {
-          so=0;
-        }
-      }
-      while (so>=0);
-    }
-    else if (i1==-1 && i2!=-1) // only t2 has a scope
-    {
-      QCString scope=t2.left(i2);
-      replaceNamespaceAliases(scope,i2);
-
-      int so=nsName.length();
-      do
-      {
-        QCString fullScope=nsName.left(so);
-        if (!fullScope.isEmpty() && !scope.isEmpty()) fullScope+="::";
-        fullScope+=scope;
-        if (!fullScope.isEmpty() && Doxygen::namespaceSDict[fullScope]!=0) // scope is a namespace
-        {
-          t2 = t2.right(t2.length()-i2-2);
-          return;
-        }
-        if (so==0)
-        {
-          so=-1;
-        }
-        else if ((so=nsName.findRev("::",so-1))==-1)
-        {
-          so=0;
-        }
-      }
-      while (so>=0);
-    }
-    p1 = QMAX(i1-2,0);
-    p2 = QMAX(i2-2,0);
-  }
-}
-#endif
-
 static void stripIrrelevantString(QCString &target,const QCString &str)
 {
   if (target==str) { target.resize(0); return; }
@@ -2265,7 +2188,7 @@ static void findMembersWithSpecificName(const MemberName *mn,
                                         bool checkStatics,
                                         const FileDef *currentFile,
                                         bool checkCV,
-                                        QList<MemberDef> &members)
+                                        std::vector<const MemberDef *> &members)
 {
   //printf("  Function with global scope name '%s' args='%s'\n",
   //       mn->memberName(),args);
@@ -2296,7 +2219,7 @@ static void findMembersWithSpecificName(const MemberName *mn,
       if (match)
       {
         //printf("Found match!\n");
-        members.append(md);
+        members.push_back(md);
       }
     }
   }
@@ -2492,27 +2415,21 @@ bool getDefs(const QCString &scName,
       if (tmd && tmd->isEnumerate() && tmd->isStrong()) // scoped enum
       {
         //printf("Found scoped enum!\n");
-        const MemberList *tml = tmd->enumFieldList();
-        if (tml)
+        for (const auto &emd : tmd->enumFieldList())
         {
-          MemberListIterator tmi(*tml);
-          MemberDef *emd;
-          for (;(emd=tmi.current());++tmi)
+          if (emd->localName()==mName)
           {
-            if (emd->localName()==mName)
+            if (emd->isLinkable())
             {
-              if (emd->isLinkable())
-              {
-                cd=tmd->getClassDef();
-                md=emd;
-                return TRUE;
-              }
-              else
-              {
-                cd=0;
-                md=0;
-                return FALSE;
-              }
+              cd=tmd->getClassDef();
+              md=emd;
+              return TRUE;
+            }
+            else
+            {
+              cd=0;
+              md=0;
+              return FALSE;
             }
           }
         }
@@ -2728,16 +2645,16 @@ bool getDefs(const QCString &scName,
 
     //else // no scope => global function
     {
-      QList<MemberDef> members;
+      std::vector<const MemberDef *> members;
       // search for matches with strict static checking
       findMembersWithSpecificName(mn,args,TRUE,currentFile,checkCV,members);
-      if (members.count()==0) // nothing found
+      if (members.empty()) // nothing found
       {
         // search again without strict static checking
         findMembersWithSpecificName(mn,args,FALSE,currentFile,checkCV,members);
       }
       //printf("found %d members\n",members.count());
-      if (members.count()!=1 && args && !qstrcmp(args,"()"))
+      if (members.size()>1 && args && !qstrcmp(args,"()"))
       {
         // no exact match found, but if args="()" an arbitrary
         // member will do
@@ -2757,32 +2674,32 @@ bool getDefs(const QCString &scName,
               (tmd && tmd->isStrong())
              )
           {
-            members.append(mmd);
+            members.push_back(mmd);
           }
         }
       }
       //printf("found %d candidate members\n",members.count());
-      if (members.count()>0) // at least one match
+      if (!members.empty()) // at least one match
       {
         if (currentFile)
         {
           //printf("multiple results; pick one from file:%s\n", currentFile->name().data());
-          QListIterator<MemberDef> mit(members);
-          for (mit.toFirst();(md=mit.current());++mit)
+          for (const auto &rmd : members)
           {
-            if (md->getFileDef() && md->getFileDef()->name() == currentFile->name())
+            if (rmd->getFileDef() && rmd->getFileDef()->name() == currentFile->name())
             {
+              md = rmd;
               break; // found match in the current file
             }
           }
           if (!md) // member not in the current file
           {
-            md=members.getLast();
+            md=members.back();
           }
         }
         else
         {
-          md=members.getLast();
+          md=members.back();
         }
       }
       if (md && (md->getEnumScope()==0 || !md->getEnumScope()->isStrong()))
@@ -3370,7 +3287,7 @@ FileDef *findFileDef(const FileNameLinkedMap *fnMap,const char *n,bool &ambig)
   ambig=FALSE;
   if (n==0) return 0;
 
-  std::unique_lock<std::mutex> lock(g_findFileDefMutex);
+  std::lock_guard<std::mutex> lock(g_findFileDefMutex);
 
   const int maxAddrSize = 20;
   char addr[maxAddrSize];
@@ -3776,6 +3693,10 @@ QCString unescapeCharsInString(const char *s)
   return result;
 }
 
+static std::unordered_map<std::string,int> g_usedNames;
+static std::mutex g_usedNamesMutex;
+static int g_usedNamesCount=1;
+
 /*! This function determines the file name on disk of an item
  *  given its name, which could be a class name with template
  *  arguments, so special characters need to be escaped.
@@ -3788,20 +3709,17 @@ QCString convertNameToFile(const char *name,bool allowDots,bool allowUnderscore)
   QCString result;
   if (shortNames) // use short names only
   {
-    static QDict<int> usedNames(10007);
-    usedNames.setAutoDelete(TRUE);
-    static int count=1;
-
-    int *value=usedNames.find(name);
-    int num;
-    if (value==0)
+    std::lock_guard<std::mutex> lock(g_usedNamesMutex);
+    auto kv = g_usedNames.find(name);
+    uint num=0;
+    if (kv!=g_usedNames.end())
     {
-      usedNames.insert(name,new int(count));
-      num = count++;
+      num = kv->second;
     }
     else
     {
-      num = *value;
+      num = g_usedNamesCount;
+      g_usedNames.insert(std::make_pair(name,g_usedNamesCount++));
     }
     result.sprintf("a%05d",num);
   }
@@ -4379,51 +4297,57 @@ void addMembersToMemberGroup(MemberList *ml,
   ASSERT(context!=0);
   //printf("addMemberToMemberGroup() context=%s\n",context->name().data());
   if (ml==0) return;
-  MemberListIterator mli(*ml);
-  MemberDef *md;
-  uint index;
-  for (index=0;(md=mli.current());)
+
+  struct MoveMemberInfo
+  {
+    MoveMemberInfo(const MemberDef *md,MemberGroup *mg,const RefItemVector &rv)
+      : memberDef(md), memberGroup(mg), sli(rv) {}
+    const MemberDef *memberDef;
+    MemberGroup *memberGroup;
+    RefItemVector sli;
+  };
+  std::vector<MoveMemberInfo> movedMembers;
+
+  for (const auto &md : *ml)
   {
     if (md->isEnumerate()) // insert enum value of this enum into groups
     {
-      const MemberList *fmdl=md->enumFieldList();
-      if (fmdl!=0)
+      for (const auto &fmd : md->enumFieldList())
       {
-        MemberListIterator fmli(*fmdl);
-        MemberDef *fmd;
-        for (fmli.toFirst();(fmd=fmli.current());++fmli)
+        int groupId=fmd->getMemberGroupId();
+        if (groupId!=-1)
         {
-          int groupId=fmd->getMemberGroupId();
-          if (groupId!=-1)
+          auto it = Doxygen::memberGroupInfoMap.find(groupId);
+          if (it!=Doxygen::memberGroupInfoMap.end())
           {
-            auto it = Doxygen::memberGroupInfoMap.find(groupId);
-            if (it!=Doxygen::memberGroupInfoMap.end())
+            auto &info = it->second;
+            auto mg_it = std::find_if(pMemberGroups->begin(),
+                                      pMemberGroups->end(),
+                                      [&groupId](const auto &g)
+                                      { return g->groupId()==groupId; }
+                                     );
+            MemberGroup *mg_ptr = 0;
+            if (mg_it==pMemberGroups->end())
             {
-              auto &info = it->second;
-              auto mg_it = std::find_if(pMemberGroups->begin(),
-                                        pMemberGroups->end(),
-                                        [&groupId](const auto &g)
-                                        { return g->groupId()==groupId; }
-                                       );
-              MemberGroup *mg_ptr = 0;
-              if (mg_it==pMemberGroups->end())
-              {
-                auto mg = std::make_unique<MemberGroup>(
-                          context,
-                          groupId,
-                          info->header,
-                          info->doc,
-                          info->docFile,
-                          info->docLine);
-                mg_ptr = mg.get();
-                pMemberGroups->push_back(std::move(mg));
-              }
-              else
-              {
-                mg_ptr = (*mg_it).get();
-              }
-              mg_ptr->insertMember(fmd); // insert in member group
-              fmd->setMemberGroup(mg_ptr);
+              auto mg = std::make_unique<MemberGroup>(
+                        context,
+                        groupId,
+                        info->header,
+                        info->doc,
+                        info->docFile,
+                        info->docLine);
+              mg_ptr = mg.get();
+              pMemberGroups->push_back(std::move(mg));
+            }
+            else
+            {
+              mg_ptr = (*mg_it).get();
+            }
+            mg_ptr->insertMember(fmd); // insert in member group
+            MemberDefMutable *fmdm = toMemberDefMutable(fmd);
+            if (fmdm)
+            {
+              fmdm->setMemberGroup(mg_ptr);
             }
           }
         }
@@ -4458,14 +4382,22 @@ void addMembersToMemberGroup(MemberList *ml,
         {
           mg_ptr = (*mg_it).get();
         }
-        md = ml->take(index); // remove from member list
-        mg_ptr->insertMember(md->resolveAlias()); // insert in member group
-        mg_ptr->setRefItems(info->m_sli);
-        md->setMemberGroup(mg_ptr);
-        continue;
+        movedMembers.push_back(MoveMemberInfo(md,mg_ptr,info->m_sli));
       }
     }
-    ++mli;++index;
+  }
+
+  // move the members to their group
+  for (const auto &mmi : movedMembers)
+  {
+    ml->remove(mmi.memberDef); // remove from member list
+    mmi.memberGroup->insertMember(mmi.memberDef->resolveAlias()); // insert in member group
+    mmi.memberGroup->setRefItems(mmi.sli);
+    MemberDefMutable *rmdm = toMemberDefMutable(mmi.memberDef);
+    if (rmdm)
+    {
+      rmdm->setMemberGroup(mmi.memberGroup);
+    }
   }
 }
 
@@ -5324,29 +5256,25 @@ QCString latexFilterURL(const char *s)
   return result.data();
 }
 
+static std::mutex g_rtfFormatMutex;
+static std::unordered_map<std::string,std::string> g_tagMap;
+static QCString g_nextTag( "AAAAAAAAAA" );
 
 QCString rtfFormatBmkStr(const char *name)
 {
-  static QCString g_nextTag( "AAAAAAAAAA" );
-  static QDict<QCString> g_tagDict( 5003 );
-
-  g_tagDict.setAutoDelete(TRUE);
+  std::lock_guard<std::mutex> lock(g_rtfFormatMutex);
 
   // To overcome the 40-character tag limitation, we
   // substitute a short arbitrary string for the name
   // supplied, and keep track of the correspondence
   // between names and strings.
-  QCString key( name );
-  QCString* tag = g_tagDict.find( key );
-  if ( !tag )
-  {
-    // This particular name has not yet been added
-    // to the list. Add it, associating it with the
-    // next tag value, and increment the next tag.
-    tag = new QCString( g_nextTag.copy() ); // Make sure to use a deep copy!
-    g_tagDict.insert( key, tag );
+  QCString tag = g_nextTag;
+  auto result = g_tagMap.insert( std::make_pair(name, g_nextTag) );
 
-    // This is the increment part
+  if (result.second) // new item was added
+  {
+    // increment the next tag.
+
     char* nxtTag = g_nextTag.rawData() + g_nextTag.length() - 1;
     for ( unsigned int i = 0; i < g_nextTag.length(); ++i, --nxtTag )
     {
@@ -5363,7 +5291,7 @@ QCString rtfFormatBmkStr(const char *name)
   }
 
   //printf("Name = %s RTF_tag = %s\n",name,(*tag).data());
-  return *tag;
+  return tag;
 }
 
 bool checkExtension(const char *fName, const char *ext)
@@ -5532,7 +5460,7 @@ void stringToSearchIndex(const QCString &docBaseUrl,const QCString &title,
 
 //--------------------------------------------------------------------------
 
-static QDict<int> g_extLookup;
+static std::unordered_map<std::string,int> g_extLookup;
 
 static struct Lang2ExtMap
 {
@@ -5580,12 +5508,13 @@ bool updateLanguageMapping(const QCString &extension,const QCString &language)
   QCString extName = extension.lower();
   if (extName.isEmpty()) return FALSE;
   if (extName.at(0)!='.') extName.prepend(".");
-  if (g_extLookup.find(extension)!=0) // language was already register for this ext
+  auto it = g_extLookup.find(extension.str());
+  if (it!=g_extLookup.end())
   {
-    g_extLookup.remove(extension);
+    g_extLookup.erase(it); // language was already register for this ext
   }
   //printf("registering extension %s\n",extName.data());
-  g_extLookup.insert(extName,new int(parserId));
+  g_extLookup.insert(std::make_pair(extName,parserId));
   if (!Doxygen::parserManager->registerExtension(extName,p->parserName))
   {
     err("Failed to assign extension %s to parser %s for language %s\n",
@@ -5602,7 +5531,6 @@ bool updateLanguageMapping(const QCString &extension,const QCString &language)
 void initDefaultExtensionMapping()
 {
   // NOTE: when adding an extension, also add the extension in config.xml
-  g_extLookup.setAutoDelete(TRUE);
   //                  extension      parser id
   updateLanguageMapping(".dox",      "c");
   updateLanguageMapping(".txt",      "c"); // see bug 760836
@@ -5673,12 +5601,12 @@ SrcLangExt getLanguageFromFileName(const QCString& fileName)
   QCString extName = fi.extension(FALSE).lower().data();
   if (extName.isEmpty()) extName=".no_extension";
   if (extName.at(0)!='.') extName.prepend(".");
-    int *pVal=g_extLookup.find(extName.data());
-    if (pVal) // listed extension
-    {
-      //printf("getLanguageFromFileName(%s)=%x\n",fi.extension().data(),*pVal);
-      return (SrcLangExt)*pVal;
-    }
+  auto it = g_extLookup.find(extName.str());
+  if (it!=g_extLookup.end()) // listed extension
+  {
+    //printf("getLanguageFromFileName(%s)=%x\n",fi.extension().data(),*pVal);
+    return (SrcLangExt)it->second;
+  }
   //printf("getLanguageFromFileName(%s) not found!\n",fileName.data());
   return SrcLangExt_Cpp; // not listed => assume C-ish language.
 }
@@ -6048,25 +5976,26 @@ static QCString expandAliasRec(StringUnorderedSet &aliasesProcessed,const QCStri
       numArgs = countAliasArguments(args);
       cmd += QCString().sprintf("{%d}",numArgs);  // alias name + {n}
     }
-    QCString *aliasText=Doxygen::aliasDict.find(cmd);
-    if (numArgs>1 && aliasText==0)
+    auto it = Doxygen::aliasMap.find(cmd.str());
+
+    if (numArgs>1 && it==Doxygen::aliasMap.end())
     { // in case there is no command with numArgs parameters, but there is a command with 1 parameter,
       // we also accept all text as the argument of that command (so you don't have to escape commas)
-      aliasText=Doxygen::aliasDict.find(cmdNoArgs+"{1}");
-      if (aliasText)
+      it = Doxygen::aliasMap.find((cmdNoArgs+"{1}").str());
+      if (it!=Doxygen::aliasMap.end())
       {
         cmd = cmdNoArgs+"{1}";
         args = escapeCommas(args); // escape , so that everything is seen as one argument
       }
     }
     //printf("Found command s='%s' cmd='%s' numArgs=%d args='%s' aliasText=%s\n",
-    //    s.data(),cmd.data(),numArgs,args.data(),aliasText?aliasText->data():"<none>");
+    //    s.data(),cmd.data(),numArgs,args.data(),it!=Doxygen::aliasMap.end()?it->second.c_str():"<none>");
     if ((allowRecursion || aliasesProcessed.find(cmd.str())==aliasesProcessed.end()) &&
-        aliasText) // expand the alias
+        it!=Doxygen::aliasMap.end()) // expand the alias
     {
       //printf("is an alias!\n");
       if (!allowRecursion) aliasesProcessed.insert(cmd.str());
-      QCString val = *aliasText;
+      QCString val = it->second;
       if (hasArgs)
       {
         val = replaceAliasArguments(aliasesProcessed,val,args);
@@ -6151,17 +6080,17 @@ QCString resolveAliasCmd(const QCString aliasCmd)
   return result;
 }
 
-QCString expandAlias(const QCString &aliasName,const QCString &aliasValue)
+std::string expandAlias(const std::string &aliasName,const std::string &aliasValue)
 {
   QCString result;
   StringUnorderedSet aliasesProcessed;
   // avoid expanding this command recursively
-  aliasesProcessed.insert(aliasName.str());
+  aliasesProcessed.insert(aliasName);
   // expand embedded commands
   //printf("Expanding: '%s'->'%s'\n",aliasName.data(),aliasValue.data());
-  result = expandAliasRec(aliasesProcessed,aliasValue);
+  result = expandAliasRec(aliasesProcessed,aliasValue.c_str());
   //printf("Expanding result: '%s'->'%s'\n",aliasName.data(),result.data());
-  return result;
+  return result.str();
 }
 
 void writeTypeConstraints(OutputList &ol,const Definition *d,const ArgumentList &al)
@@ -6450,10 +6379,10 @@ QCString externalRef(const QCString &relPath,const QCString &ref,bool href)
   QCString result;
   if (!ref.isEmpty())
   {
-    QCString *dest = Doxygen::tagDestinationDict[ref];
-    if (dest)
+    auto it = Doxygen::tagDestinationMap.find(ref.str());
+    if (it!=Doxygen::tagDestinationMap.end())
     {
-      result = *dest;
+      result = it->second;
       int l = result.length();
       if (!relPath.isEmpty() && l>0 && result.at(0)=='.')
       { // relative path -> prepend relPath.
@@ -7333,4 +7262,118 @@ FortranFormat convertFileNameFortranParserCode(QCString fn)
   else if (parserName == "fortranfree") return FortranFormat_Free;
 
   return FortranFormat_Unknown;
+}
+//------------------------------------------------------------------------
+
+/// Clear a text block \a s from \a begin to \a end markers
+QCString clearBlock(const char *s,const char *begin,const char *end)
+{
+  if (s==0 || begin==0 || end==0) return s;
+  const char *p, *q;
+  int beginLen = qstrlen(begin);
+  int endLen = qstrlen(end);
+  int resLen = 0;
+  for (p=s; (q=strstr(p,begin))!=0; p=q+endLen)
+  {
+    resLen+=(int)(q-p);
+    p=q+beginLen;
+    if ((q=strstr(p,end))==0)
+    {
+      resLen+=beginLen;
+      break;
+    }
+  }
+  resLen+=qstrlen(p);
+  // resLen is the length of the string without the marked block
+
+  QCString result(resLen+1);
+  char *r;
+  for (r=result.rawData(), p=s; (q=strstr(p,begin))!=0; p=q+endLen)
+  {
+    int l = (int)(q-p);
+    memcpy(r,p,l);
+    r+=l;
+    p=q+beginLen;
+    if ((q=strstr(p,end))==0)
+    {
+      memcpy(r,begin,beginLen);
+      r+=beginLen;
+      break;
+    }
+  }
+  qstrcpy(r,p);
+  return result;
+}
+//----------------------------------------------------------------------
+
+QCString selectBlock(const QCString& s,const QCString &name,bool enable, OutputGenerator::OutputType o)
+{
+  // TODO: this is an expensive function that is called a lot -> optimize it
+  QCString begin;
+  QCString end;
+  QCString nobegin;
+  QCString noend;
+  switch (o)
+  {
+    case OutputGenerator::Html:
+      begin = "<!--BEGIN " + name + "-->";
+      end = "<!--END " + name + "-->";
+      nobegin = "<!--BEGIN !" + name + "-->";
+      noend = "<!--END !" + name + "-->";
+      break;
+    case OutputGenerator::Latex:
+      begin = "%%BEGIN " + name;
+      end = "%%END " + name;
+      nobegin = "%%BEGIN !" + name;
+      noend = "%%END !" + name;
+      break;
+    default:
+      break;
+  }
+
+  QCString result = s;
+  if (enable)
+  {
+    result = substitute(result, begin, "");
+    result = substitute(result, end, "");
+    result = clearBlock(result, nobegin, noend);
+  }
+  else
+  {
+    result = substitute(result, nobegin, "");
+    result = substitute(result, noend, "");
+    result = clearBlock(result, begin, end);
+  }
+
+  return result;
+}
+
+QCString removeEmptyLines(const QCString &s)
+{
+  BufStr out(s.length()+1);
+  const char *p=s.data();
+  if (p)
+  {
+    char c;
+    while ((c=*p++))
+    {
+      if (c=='\n')
+      {
+        const char *e = p;
+        while (*e==' ' || *e=='\t') e++;
+        if (*e=='\n')
+        {
+          p=e;
+        }
+        else out.addChar(c);
+      }
+      else
+      {
+        out.addChar(c);
+      }
+    }
+  }
+  out.addChar('\0');
+  //printf("removeEmptyLines(%s)=%s\n",s.data(),out.data());
+  return out.data();
 }

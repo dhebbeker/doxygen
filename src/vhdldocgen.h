@@ -21,7 +21,6 @@
  * vhdl documents
  */
 
-#include <qdict.h>
 #include <qcstring.h>
 #include "layout.h"
 #include "arguments.h"
@@ -39,8 +38,6 @@ class GroupDef;
 class FileDef;
 class NamespaceDef;
 struct Argument;
-
-
 
 struct VhdlConfNode
 {
@@ -133,14 +130,14 @@ class VhdlDocGen
     static const char* findKeyWord(const QCString& word);
 
     static ClassDef* getPackageName(const QCString& name);
-    static MemberDef* findMember(const QCString& className,
+    static const MemberDef* findMember(const QCString& className,
                                  const QCString& memName);
     static void findAllPackages(ClassDef*);
-    static MemberDef* findMemberDef(ClassDef* cd,
+    static const MemberDef* findMemberDef(ClassDef* cd,
                                 const QCString& key,
                                 MemberListType type);
     static ClassDef *getClass(const char *name);
-    static MemberDef* findFunction(const QCString& name,
+    static const MemberDef* findFunction(const QCString& name,
                                    const QCString& package);
     static QCString getClassTitle(const ClassDef*);
     static void writeInlineClassLink(const ClassDef*,
@@ -248,7 +245,7 @@ class VhdlDocGen
   static void resetCodeVhdlParserState();
 
   private:
-    static void findAllArchitectures(QList<QCString>& ql,const ClassDef *cd);
+    static void findAllArchitectures(std::vector<QCString>& ql,const ClassDef *cd);
     static bool compareArgList(const ArgumentList &,const ArgumentList &);
     static void writeVhdlLink(const ClassDef* cdd ,OutputList& ol,QCString& type,QCString& name,QCString& beh);
     static void writeStringLink(const MemberDef *mdef,QCString mem,OutputList& ol);
@@ -295,22 +292,21 @@ class FlowChart
     static void startDot(FTextStream &t);
     static void endDot(FTextStream &t);
     static void codify(FTextStream &t,const char *str);
-    static void writeShape(FTextStream &t,const FlowChart* fl);
+    static void writeShape(FTextStream &t,const FlowChart &fl);
     static void writeEdge(FTextStream &t,int fl_from,int fl_to,int i,bool bFrom=FALSE,bool bTo=FALSE);
-    static void writeEdge(FTextStream &t,const FlowChart* fl_from,const FlowChart* fl_to,int i);
+    static void writeEdge(FTextStream &t,const FlowChart &fl_from,const FlowChart &fl_to,int i);
     static void writeFlowLinks(FTextStream &t);
 
     static QCString getNodeName(int n);
     static void colTextNodes();
 
-    static int getNextTextLink(const FlowChart* fl,uint index);
-    static int getNextIfLink(const FlowChart*,uint);
-    static int getNextNode(int,int);
-    static int findNode(int index,int stamp,int type);
-    static int findNode(int index,int type);
-    static int findNextLoop(int j,int stamp);
-    static int findPrevLoop(int j,int stamp,bool endif=FALSE);
-    static int findLabel(int j,QCString &);
+    static size_t getNextIfLink(const FlowChart&,size_t);
+    static size_t getNextNode(size_t index,int stamp);
+    static size_t findNode(size_t index,int stamp,int type);
+    static size_t findNode(size_t index,int type);
+    static size_t findNextLoop(size_t j,int stamp);
+    static size_t findPrevLoop(size_t j,int stamp,bool endif=FALSE);
+    static size_t findLabel(size_t j,const QCString &);
     static void delFlowList();
     static const char* getNodeType(int c);
 
@@ -320,15 +316,13 @@ class FlowChart
     static void writeFlowChart();
     static void alignFuncProc(QCString & q,const ArgumentList &al,bool isFunc);
     static QCString convertNameToFileName();
-    static void printNode(const FlowChart* n);
+    static void printNode(const FlowChart& n);
     static void printFlowTree();
     static void buildCommentNodes(FTextStream &t);
     static void alignCommentNode(FTextStream &t,QCString com);
 
     static void  printUmlTree();
-    static QCString printPlantUmlNode(const FlowChart *flo,bool,bool);
-
-    static QList<FlowChart> flowList;
+    static QCString printPlantUmlNode(const FlowChart &flo,bool,bool);
 
     FlowChart(int typ,const char*  t,const char* ex,const char* label=0);
     ~FlowChart();
@@ -344,5 +338,7 @@ private:
     QCString text;
     QCString exp;
 };
+
+extern std::vector<FlowChart> flowList;
 
 #endif

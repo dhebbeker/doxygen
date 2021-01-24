@@ -49,8 +49,8 @@ class DirDefImpl : public DefinitionMixin<DirDef>
     virtual QCString displayName(bool=TRUE) const { return m_dispName; }
     virtual const QCString &shortName() const { return m_shortName; }
     virtual void addSubDir(DirDef *subdir);
-    virtual FileList *   getFiles() const        { return m_fileList; }
-    virtual void addFile(FileDef *fd);
+    virtual const FileList &getFiles() const { return m_fileList; }
+    virtual void addFile(const FileDef *fd);
     virtual const DirList &subDirs() const { return m_subdirs; }
     virtual bool isCluster() const { return m_subdirs.size()>0; }
     virtual int level() const { return m_level; }
@@ -67,8 +67,8 @@ class DirDefImpl : public DefinitionMixin<DirDef>
     virtual void sort();
     virtual void setParent(DirDef *parent);
     virtual void setLevel();
-    virtual void addUsesDependency(DirDef *usedDir,FileDef *srcFd,
-                           FileDef *dstFd,const bool inheritedByDependent, const bool inheritedByDependee);
+    virtual void addUsesDependency(const DirDef *usedDir,const FileDef *srcFd,
+                                   const FileDef *dstFd,const bool inheritedByDependent, const bool inheritedByDependee);
     virtual void computeDependencies();
 
   public:
@@ -91,7 +91,7 @@ class DirDefImpl : public DefinitionMixin<DirDef>
     QCString m_dispName;
     QCString m_shortName;
     QCString m_diskName;
-    FileList *m_fileList;                 // list of files in the group
+    FileList m_fileList;                 // list of files in the group
     int m_dirCount;
     int m_level;
     DirDef *m_parent;
@@ -132,7 +132,6 @@ DirDefImpl::DirDefImpl(const char *path) : DefinitionMixin(path,1,1,path)
     m_dispName = m_dispName.left(m_dispName.length()-1);
   }
 
-  m_fileList   = new FileList;
   m_dirCount   = g_dirCount++;
   m_level=-1;
   m_parent=0;
@@ -140,7 +139,6 @@ DirDefImpl::DirDefImpl(const char *path) : DefinitionMixin(path,1,1,path)
 
 DirDefImpl::~DirDefImpl()
 {
-  delete m_fileList;
 }
 
 bool DirDefImpl::isLinkableInProject() const
@@ -165,16 +163,16 @@ void DirDefImpl::setParent(DirDef *p)
    m_parent=p;
 }
 
-void DirDefImpl::addFile(FileDef *fd)
+void DirDefImpl::addFile(const FileDef *fd)
 {
-  m_fileList->append(fd);
-  fd->setDirDef(this);
+  m_fileList.push_back(fd);
+  const_cast<FileDef*>(fd)->setDirDef(this);
 }
 
 void DirDefImpl::sort()
 {
   std::sort(m_subdirs.begin(), m_subdirs.end(), compareDirDefs);
-  m_fileList->sort();
+  std::sort(m_fileList.begin(), m_fileList.end(), compareFileDefs);
 }
 
 static QCString encodeDirName(const QCString &anchor)
@@ -326,7 +324,7 @@ void DirDefImpl::writeSubDirList(OutputList &ol)
   int numSubdirs = 0;
   for(const auto dd : m_subdirs)
   {
-    if (dd->hasDocumentation() || dd->getFiles()->count()>0)
+    if (dd->hasDocumentation() || !dd->getFiles().empty())
     {
       numSubdirs++;
     }
@@ -341,7 +339,7 @@ void DirDefImpl::writeSubDirList(OutputList &ol)
     ol.startMemberList();
     for(const auto dd : m_subdirs)
     {
-      if (dd->hasDocumentation() || dd->getFiles()->count()==0)
+      if (dd->hasDocumentation() || dd->getFiles().empty())
       {
         ol.startMemberDeclaration();
         ol.startMemberItem(dd->getOutputFileBase(),0);
@@ -373,9 +371,7 @@ void DirDefImpl::writeSubDirList(OutputList &ol)
 void DirDefImpl::writeFileList(OutputList &ol)
 {
   int numFiles = 0;
-  QListIterator<FileDef> it(*m_fileList);
-  FileDef *fd;
-  for (it.toFirst();(fd=it.current());++it)
+  for (const auto &fd : m_fileList)
   {
     if (fd->hasDocumentation())
     {
@@ -390,7 +386,7 @@ void DirDefImpl::writeFileList(OutputList &ol)
     ol.parseText(theTranslator->trFile(TRUE,FALSE));
     ol.endMemberHeader();
     ol.startMemberList();
-    for (it.toFirst();(fd=it.current());++it)
+    for (const auto &fd : m_fileList)
     {
       if (fd->hasDocumentation())
       {
@@ -468,10 +464,7 @@ void DirDefImpl::writeTagFile(FTextStream &tagFile)
   tagFile << "    <name>" << convertToXML(displayName()) << "</name>" << endl;
   tagFile << "    <path>" << convertToXML(name()) << "</path>" << endl;
   tagFile << "    <filename>" << convertToXML(getOutputFileBase()) << Doxygen::htmlFileExtension << "</filename>" << endl;
-  QListIterator<LayoutDocEntry> eli(
-      LayoutDocManager::instance().docEntries(LayoutDocManager::Directory));
-  LayoutDocEntry *lde;
-  for (eli.toFirst();(lde=eli.current());++eli)
+  for (const auto &lde : LayoutDocManager::instance().docEntries(LayoutDocManager::Directory))
   {
     switch (lde->kind())
     {
@@ -488,14 +481,9 @@ void DirDefImpl::writeTagFile(FTextStream &tagFile)
         break;
       case LayoutDocEntry::DirFiles:
         {
-          if (m_fileList->count()>0)
+          for (const auto &fd : m_fileList)
           {
-            QListIterator<FileDef> it(*m_fileList);
-            FileDef *fd;
-            for (;(fd=it.current());++it)
-            {
               tagFile << "    <file>" << convertToXML(fd->name()) << "</file>" << endl;
-            }
           }
         }
         break;
@@ -536,10 +524,7 @@ void DirDefImpl::writeDocumentation(OutputList &ol)
   //---------------------------------------- start flexible part -------------------------------
 
   SrcLangExt lang = getLanguage();
-  QListIterator<LayoutDocEntry> eli(
-      LayoutDocManager::instance().docEntries(LayoutDocManager::Directory));
-  LayoutDocEntry *lde;
-  for (eli.toFirst();(lde=eli.current());++eli)
+  for (const auto &lde : LayoutDocManager::instance().docEntries(LayoutDocManager::Directory))
   {
     switch (lde->kind())
     {
@@ -563,7 +548,7 @@ void DirDefImpl::writeDocumentation(OutputList &ol)
         break;
       case LayoutDocEntry::DetailedDesc:
         {
-          LayoutDocEntrySection *ls = (LayoutDocEntrySection*)lde;
+          const LayoutDocEntrySection *ls = (const LayoutDocEntrySection*)lde.get();
           writeDetailedDescription(ol,ls->title(lang));
         }
         break;
@@ -641,9 +626,8 @@ void DirDefImpl::setLevel()
 /** Add as "uses" dependency between \a this dir and \a dir,
  *  that was caused by a dependency on file \a fd.
  */
-void DirDefImpl::addUsesDependency(DirDef *dir,FileDef *srcFd,
-                               FileDef *dstFd,
-    const bool inheritedByDependent, const bool inheritedByDependee)
+void DirDefImpl::addUsesDependency(const DirDef *dir,const FileDef *srcFd,
+                                   const FileDef *dstFd,const bool inheritedByDependent, const bool inheritedByDependee)
 {
   if (this==dir) return; // do not add self-dependencies
   //static int count=0;
@@ -658,8 +642,7 @@ void DirDefImpl::addUsesDependency(DirDef *dir,FileDef *srcFd,
   UsedDir *usedDir = m_usedDirs.find(dir->getOutputFileBase());
   if (usedDir) // dir dependency already present
   {
-     const FilePair *usedPair = usedDir->findFilePair(
-         srcFd->getOutputFileBase()+dstFd->getOutputFileBase());
+     const FilePair *usedPair = usedDir->findFilePair(FilePair::key(srcFd,dstFd));
      if (usedPair==0) // new file dependency
      {
        //printf("  => new file\n");
@@ -703,35 +686,23 @@ void DirDefImpl::addUsesDependency(DirDef *dir,FileDef *srcFd,
  */
 void DirDefImpl::computeDependencies()
 {
-  FileList *fl = m_fileList;
-  if (fl)
+  for (const auto &fd : m_fileList)
   {
-    QListIterator<FileDef> fli(*fl);
-    FileDef *fd;
-    for (fli.toFirst();(fd=fli.current());++fli) // foreach file in dir dd
+    //printf("  File %s\n",fd->name().data());
+    //printf("** dir=%s file=%s\n",shortName().data(),fd->name().data());
+    for (const auto &ii : fd->includeFileList())
     {
-      //printf("  File %s\n",fd->name().data());
-      //printf("** dir=%s file=%s\n",shortName().data(),fd->name().data());
-      QList<IncludeInfo> *ifl = fd->includeFileList();
-      if (ifl)
+      //printf("  > %s\n",ii->includeName.data());
+      //printf("    #include %s\n",ii->includeName.data());
+      if (ii.fileDef && ii.fileDef->isLinkable()) // linkable file
       {
-        QListIterator<IncludeInfo> ifli(*ifl);
-        IncludeInfo *ii;
-        for (ifli.toFirst();(ii=ifli.current());++ifli) // foreach include file
+        DirDef *usedDir = ii.fileDef->getDirDef();
+        if (usedDir)
         {
-          //printf("  > %s\n",ii->includeName.data());
-          //printf("    #include %s\n",ii->includeName.data());
-          if (ii->fileDef && ii->fileDef->isLinkable()) // linkable file
-          {
-            DirDef *usedDir = ii->fileDef->getDirDef();
-            if (usedDir)
-            {
-              // add dependency: thisDir->usedDir
-              //static int count=0;
-              //printf("      %d: add dependency %s->%s\n",count++,name().data(),usedDir->name().data());
-              addUsesDependency(usedDir, fd, ii->fileDef, false, false);
-            }
-          }
+          // add dependency: thisDir->usedDir
+          //static int count=0;
+          //printf("      %d: add dependency %s->%s\n",count++,name().data(),usedDir->name().data());
+          addUsesDependency(usedDir,fd,ii.fileDef,false, false);
         }
       }
     }
@@ -762,33 +733,21 @@ bool DirDefImpl::depGraphIsTrivial() const
   return m_usedDirs.empty();
 }
 
-//----------------------------------------------------------------------
-
-int FilePairDict::compareValues(const FilePair *left,const FilePair *right) const
-{
-  int orderHi = qstricmp(left->source()->name(),right->source()->name());
-  if (orderHi!=0) return orderHi;
-  int orderLo = qstricmp(left->destination()->name(),right->destination()->name());
-  return orderLo;
-}
 
 //----------------------------------------------------------------------
 
 UsedDir::UsedDir(const DirDef *dir) :
-   m_dir(dir), m_filePairs(7), m_SODO(false), m_SODI(false), m_SIDO(false), m_SIDI(false)
+   m_dir(dir), m_SODO(false), m_SODI(false), m_SIDO(false), m_SIDI(false)
 {
-  m_filePairs.setAutoDelete(TRUE);
 }
 
 UsedDir::~UsedDir()
 {
 }
 
-
-void UsedDir::addFileDep(FileDef *srcFd,FileDef *dstFd, const bool isInheritedByDependent, const bool isInheritedByDependee)
+void UsedDir::addFileDep(const FileDef *srcFd,const FileDef *dstFd, const bool isInheritedByDependent, const bool isInheritedByDependee)
 {
-  m_filePairs.append(srcFd->getOutputFileBase()+dstFd->getOutputFileBase(),
-                     new FilePair(srcFd,dstFd));
+  m_filePairs.add(FilePair::key(srcFd,dstFd),std::make_unique<FilePair>(srcFd,dstFd));
   m_SODO = m_SODO || (!isInheritedByDependent && !isInheritedByDependee);
   m_SODI = m_SODI || (!isInheritedByDependent && isInheritedByDependee);
   m_SIDO = m_SIDO || (isInheritedByDependent && !isInheritedByDependee);
@@ -797,13 +756,20 @@ void UsedDir::addFileDep(FileDef *srcFd,FileDef *dstFd, const bool isInheritedBy
 
 void UsedDir::sort()
 {
-  m_filePairs.sort();
+  std::sort(m_filePairs.begin(),
+            m_filePairs.end(),
+            [](const auto &left,const auto &right)
+            {
+              int orderHi = qstricmp(left->source()->name(),right->source()->name());
+              if (orderHi!=0) return orderHi<0;
+              int orderLo = qstricmp(left->destination()->name(),right->destination()->name());
+              return orderLo<0;
+            });
 }
 
 FilePair *UsedDir::findFilePair(const char *name)
 {
-  QCString n=name;
-  return n.isEmpty() ? 0 : m_filePairs.find(n);
+  return m_filePairs.find(name);
 }
 
 DirDef *DirDefImpl::createNewDir(const char *path)
@@ -852,6 +818,13 @@ DirDef *DirDefImpl::mergeDirectoryInTree(const QCString &path)
     p=i+1;
   }
   return dir;
+}
+
+//----------------------------------------------------------------------
+
+QCString FilePair::key(const FileDef *srcFd,const FileDef *dstFd)
+{
+  return srcFd->getOutputFileBase()+";"+dstFd->getOutputFileBase();
 }
 
 //----------------------------------------------------------------------
@@ -919,9 +892,7 @@ void DirRelation::writeDocumentation(OutputList &ol)
   ol.writeString("</th>");
   ol.writeString("</tr>");
 
-  SDict<FilePair>::Iterator fpi(m_dst->filePairs());
-  FilePair *fp;
-  for (fpi.toFirst();(fp=fpi.current());++fpi)
+  for (const auto &fp : m_dst->filePairs())
   {
     ol.writeString("<tr class=\"dirtab\">");
     ol.writeString("<td class=\"dirtab\">");

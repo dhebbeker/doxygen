@@ -13,20 +13,18 @@
  *
  */
 
+#include <chrono>
 #include <locale.h>
 
 #include <qfileinfo.h>
 #include <qfile.h>
 #include <qdir.h>
-#include <qdict.h>
 #include <qregexp.h>
-#include <qstrlist.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <qtextcodec.h>
 #include <errno.h>
-#include <qptrdict.h>
 #include <qtextstream.h>
 
 #include <algorithm>
@@ -126,7 +124,7 @@ FileNameLinkedMap    *Doxygen::inputNameLinkedMap = 0;
 GroupLinkedMap       *Doxygen::groupLinkedMap = 0;
 PageLinkedMap        *Doxygen::pageLinkedMap = 0;
 PageLinkedMap        *Doxygen::exampleLinkedMap = 0;
-StringDict            Doxygen::aliasDict(257);          // aliases
+StringMap             Doxygen::aliasMap;                     // aliases
 StringSet             Doxygen::inputPaths;
 FileNameLinkedMap    *Doxygen::includeNameLinkedMap = 0;     // include names
 FileNameLinkedMap    *Doxygen::exampleNameLinkedMap = 0;     // examples
@@ -135,7 +133,7 @@ FileNameLinkedMap    *Doxygen::dotFileNameLinkedMap = 0;     // dot files
 FileNameLinkedMap    *Doxygen::mscFileNameLinkedMap = 0;     // msc files
 FileNameLinkedMap    *Doxygen::diaFileNameLinkedMap = 0;     // dia files
 StringUnorderedMap    Doxygen::namespaceAliasMap;            // all namespace aliases
-StringDict            Doxygen::tagDestinationDict(257);      // all tag locations
+StringMap             Doxygen::tagDestinationMap;            // all tag locations
 StringUnorderedSet    Doxygen::expandAsDefinedSet;           // all macros that should be expanded
 MemberGroupInfoMap    Doxygen::memberGroupInfoMap;           // dictionary of the member groups heading
 std::unique_ptr<PageDef> Doxygen::mainPage;
@@ -164,9 +162,9 @@ bool                  Doxygen::clangAssistedParsing = FALSE;
 // locally accessible globals
 static std::multimap< std::string, const Entry* > g_classEntries;
 static StringVector     g_inputFiles;
-static QDict<void>      g_compoundKeywordDict(7);  // keywords recognised as compounds
+static StringSet        g_compoundKeywords;        // keywords recognised as compounds
 static OutputList      *g_outputList = 0;          // list of output generating objects
-static QDict<FileDef>   g_usingDeclarations(1009); // used classes
+static StringSet        g_usingDeclarations; // used classes
 static bool             g_successfulRun = FALSE;
 static bool             g_dumpSymbolMap = FALSE;
 static bool             g_useOutputTemplate = FALSE;
@@ -189,7 +187,7 @@ void clearAll()
   Doxygen::dotFileNameLinkedMap->clear();
   Doxygen::mscFileNameLinkedMap->clear();
   Doxygen::diaFileNameLinkedMap->clear();
-  Doxygen::tagDestinationDict.clear();
+  Doxygen::tagDestinationMap.clear();
   SectionManager::instance().clear();
   CitationManager::instance().clear();
   Doxygen::mainPage.reset();
@@ -199,17 +197,18 @@ void clearAll()
 class Statistics
 {
   public:
-    Statistics() { stats.setAutoDelete(TRUE); }
+    Statistics() {}
     void begin(const char *name)
     {
       msg("%s", name);
-      stat *entry= new stat(name,0);
-      stats.append(entry);
-      time.restart();
+      stats.emplace_back(name,0);
+      startTime = std::chrono::steady_clock::now();
     }
     void end()
     {
-      stats.getLast()->elapsed=((double)time.elapsed())/1000.0;
+      std::chrono::steady_clock::time_point endTime = std::chrono::steady_clock::now();
+      stats.back().elapsed = std::chrono::duration_cast<
+                                std::chrono::microseconds>(endTime - startTime).count()/1000000.0;
     }
     void print()
     {
@@ -220,11 +219,9 @@ class Statistics
         restore=TRUE;
       }
       msg("----------------------\n");
-      QListIterator<stat> sli(stats);
-      stat *s;
-      for ( sli.toFirst(); (s=sli.current()); ++sli )
+      for (const auto &s : stats)
       {
-        msg("Spent %.3f seconds in %s",s->elapsed,s->name);
+        msg("Spent %.6f seconds in %s",s.elapsed,s.name);
       }
       if (restore) Debug::setFlag("time");
     }
@@ -233,44 +230,12 @@ class Statistics
     {
       const char *name;
       double elapsed;
-      stat() : name(NULL),elapsed(0) {}
+      //stat() : name(NULL),elapsed(0) {}
       stat(const char *n, double el) : name(n),elapsed(el) {}
     };
-    QList<stat> stats;
-    QTime       time;
+    std::vector<stat> stats;
+    std::chrono::steady_clock::time_point startTime;
 } g_s;
-
-
-void statistics()
-{
-#if 0
-  fprintf(stderr,"--- inputNameLinkedMap stats ----\n");
-  Doxygen::inputNameLinkedMap->statistics();
-  fprintf(stderr,"--- includeNameDict stats ----\n");
-  Doxygen::includeNameDict->statistics();
-  fprintf(stderr,"--- exampleNameDict stats ----\n");
-  Doxygen::exampleNameDict->statistics();
-  fprintf(stderr,"--- imageNameDict stats ----\n");
-  Doxygen::imageNameDict->statistics();
-  fprintf(stderr,"--- dotFileNameDict stats ----\n");
-  Doxygen::dotFileNameDict->statistics();
-  fprintf(stderr,"--- mscFileNameDict stats ----\n");
-  Doxygen::mscFileNameDict->statistics();
-  fprintf(stderr,"--- diaFileNameDict stats ----\n");
-  Doxygen::diaFileNameDict->statistics();
-  fprintf(stderr,"--- memGrpInfoDict stats ----\n");
-  Doxygen::memGrpInfoDict.statistics();
-#endif
-  //fprintf(stderr,"--- g_excludeNameDict stats ----\n");
-  //g_excludeNameDict.statistics();
-  fprintf(stderr,"--- aliasDict stats ----\n");
-  Doxygen::aliasDict.statistics();
-  fprintf(stderr,"--- tagDestinationDict stats ----\n");
-  Doxygen::tagDestinationDict.statistics();
-  fprintf(stderr,"--- g_compoundKeywordDict stats ----\n");
-  g_compoundKeywordDict.statistics();
-}
-
 
 
 static void addMemberDocs(const Entry *root,MemberDefMutable *md, const char *funcDecl,
@@ -291,12 +256,13 @@ enum FindBaseClassRelation_Mode
   Undocumented
 };
 
+
 static bool findClassRelation(
                            const Entry *root,
                            Definition *context,
                            ClassDefMutable *cd,
                            const BaseInfo *bi,
-                           QDict<int> *templateNames,
+                           const TemplateNameMap &templateNames,
                            /*bool insertUndocumented*/
                            FindBaseClassRelation_Mode mode,
                            bool isArtificial
@@ -859,17 +825,14 @@ static Definition *findScopeFromQualifiedName(NamespaceDefMutable *startScope,co
       // the scope relations!
       // Therefore loop through all used classes and see if there is a right
       // scope match between the used class and nestedNameSpecifier.
-      QDictIterator<FileDef> ui(g_usingDeclarations);
-      FileDef *usedFd;
-      for (ui.toFirst();(usedFd=ui.current());++ui)
+      for (const auto &usedName : g_usingDeclarations)
       {
         //printf("Checking using class %s\n",ui.currentKey());
-        if (rightScopeMatch(ui.currentKey(),nestedNameSpecifier))
+        if (rightScopeMatch(usedName.c_str(),nestedNameSpecifier))
         {
           // ui.currentKey() is the fully qualified name of nestedNameSpecifier
           // so use this instead.
-          QCString fqn = QCString(ui.currentKey())+
-                         scope.right(scope.length()-p);
+          QCString fqn = QCString(usedName) + scope.right(scope.length()-p);
           resultScope = buildScopeFromQualifiedName(fqn,startScope->getLanguage(),0);
           //printf("Creating scope from fqn=%s result %p\n",fqn.data(),resultScope);
           if (resultScope)
@@ -1380,9 +1343,7 @@ static ClassDefMutable *createTagLessInstance(const ClassDef *rootCd,const Class
     MemberList *ml = templ->getMemberList(MemberListType_pubAttribs);
     if (ml)
     {
-      MemberListIterator li(*ml);
-      MemberDef *md;
-      for (li.toFirst();(md=li.current());++li)
+      for (const auto &md : *ml)
       {
         //printf("    Member %s type=%s\n",md->name().data(),md->typeString());
         MemberDefMutable *imd = createMemberDef(md->getDefFileName(),md->getDefLine(),md->getDefColumn(),
@@ -1428,9 +1389,7 @@ static void processTagLessClasses(const ClassDef *rootCd,
     MemberList *ml = cd->getMemberList(MemberListType_pubAttribs);
     if (ml)
     {
-      MemberListIterator li(*ml);
-      MemberDef *md;
-      for (li.toFirst();(md=li.current());++li)
+      for (const auto &md : *ml)
       {
         QCString type = md->typeString();
         if (type.find("::@")!=-1) // member of tag less struct/union
@@ -1462,9 +1421,7 @@ static void processTagLessClasses(const ClassDef *rootCd,
                 MemberList *pml = tagParentCd->getMemberList(MemberListType_pubAttribs);
                 if (pml)
                 {
-                  MemberListIterator pli(*pml);
-                  MemberDef *pmd;
-                  for (pli.toFirst();(pmd=pli.current());++pli)
+                  for (const auto &pmd : *pml)
                   {
                     MemberDefMutable *pmdm = toMemberDefMutable(pmd);
                     if (pmdm && pmd->name()==md->name())
@@ -1817,9 +1774,6 @@ static void findUsingDirectives(const Entry *root)
           nd->setMetaData(root->metaData);
           nd->setInline((root->spec&Entry::Inline)!=0);
 
-          //QListIterator<Grouping> gli(*root->groups);
-          //Grouping *g;
-          //for (;(g=gli.current());++gli)
           for (const Grouping &g : root->groups)
           {
             GroupDef *gd=0;
@@ -1854,15 +1808,7 @@ static void buildListOfUsingDecls(const Entry *root)
      )
   {
     QCString name = substitute(root->name,".","::");
-
-    if (g_usingDeclarations.find(name)==0)
-    {
-      FileDef *fd = root->fileDef();
-      if (fd)
-      {
-        g_usingDeclarations.insert(name,fd);
-      }
-    }
+    g_usingDeclarations.insert(name.str());
   }
   for (const auto &e : root->children()) buildListOfUsingDecls(e.get());
 }
@@ -1987,7 +1933,7 @@ static void findUsingDeclImports(const Entry *root)
           {
             for (auto &mi : *mni)
             {
-              MemberDef *md = mi->memberDef();
+              const MemberDef *md = mi->memberDef();
               if (md && md->protection()!=Private)
               {
                 //printf("found member %s\n",mni->memberName());
@@ -2911,7 +2857,7 @@ static void buildVarList(const Entry *root)
   //printf("buildVarList(%s) section=%08x\n",rootNav->name().data(),rootNav->section());
   int isFuncPtr=-1;
   if (!root->name.isEmpty() &&
-      (root->type.isEmpty() || g_compoundKeywordDict.find(root->type)==0) &&
+      (root->type.isEmpty() || g_compoundKeywords.find(root->type.str())==g_compoundKeywords.end()) &&
       (
        (root->section==Entry::VARIABLE_SEC    // it's a variable
        ) ||
@@ -2992,7 +2938,9 @@ static void addInterfaceOrServiceToServiceOrSingleton(
   // "optional" interface/service get Protected which turns into dashed line
   BaseInfo base(rname,
           (root->spec & (Entry::Optional)) ? Protected : Public,Normal);
-  findClassRelation(root,cd,cd,&base,0,DocumentedOnly,true) || findClassRelation(root,cd,cd,&base,0,Undocumented,true);
+  TemplateNameMap templateNames;
+  findClassRelation(root,cd,cd,&base,templateNames,DocumentedOnly,true) ||
+       findClassRelation(root,cd,cd,&base,templateNames,Undocumented,true);
   // add file to list of used files
   cd->insertUsedFile(fd);
 
@@ -3869,10 +3817,9 @@ static void transferRelatedFunctionDocumentation()
  * Example: A template class A with template arguments <R,S,T>
  * that inherits from B<T,T,S> will have T and S in the dictionary.
  */
-static QDict<int> *getTemplateArgumentsInName(const ArgumentList &templateArguments,const QCString &name)
+static TemplateNameMap getTemplateArgumentsInName(const ArgumentList &templateArguments,const QCString &name)
 {
-  QDict<int> *templateNames = new QDict<int>(17);
-  templateNames->setAutoDelete(TRUE);
+  std::map<std::string,int> templateNames;
   static QRegExp re("[a-z_A-Z][a-z_A-Z0-9:]*");
   int count=0;
   for (const Argument &arg : templateArguments)
@@ -3883,9 +3830,9 @@ static QDict<int> *getTemplateArgumentsInName(const ArgumentList &templateArgume
       QCString n = name.mid(i,l);
       if (n==arg.name)
       {
-        if (templateNames->find(n)==0)
+        if (templateNames.find(n.str())==templateNames.end())
         {
-          templateNames->insert(n,new int(count));
+          templateNames.insert(std::make_pair(n.str(),count));
         }
       }
       p=i+l;
@@ -3926,7 +3873,7 @@ static ClassDef *findClassWithinClassContext(Definition *context,ClassDef *cd,co
   //       context ? context->name().data() : "<none>",
   //       cd      ? cd->name().data()      : "<none>",
   //       result  ? result->name().data()  : "<none>",
-  //       Doxygen::classSDict->find(name)
+  //       Doxygen::classLinkedMap->find(name)
   //      );
   return result;
 }
@@ -3938,7 +3885,7 @@ static void findUsedClassesForClass(const Entry *root,
                            ClassDefMutable *instanceCd,
                            bool isArtificial,
                            const std::unique_ptr<ArgumentList> &actualArgs = std::unique_ptr<ArgumentList>(),
-                           QDict<int> *templateNames=0
+                           const TemplateNameMap &templateNames = TemplateNameMap()
                            )
 {
   const ArgumentList &formalArgs = masterCd->templateArguments();
@@ -3946,7 +3893,7 @@ static void findUsedClassesForClass(const Entry *root,
   {
     for (auto &mi : *mni)
     {
-      MemberDef *md=mi->memberDef();
+      const MemberDef *md=mi->memberDef();
       if (md->isVariable() || md->isObjCProperty()) // for each member variable in this class
       {
         //printf("    Found variable %s in class %s\n",md->name().data(),masterCd->name().data());
@@ -3988,14 +3935,13 @@ static void findUsedClassesForClass(const Entry *root,
           QCString usedName = removeRedundantWhiteSpace(usedClassName+templSpec);
           //printf("    usedName=%s\n",usedName.data());
 
-          bool delTempNames=FALSE;
-          if (templateNames==0)
+          TemplateNameMap formTemplateNames;
+          if (templateNames.empty())
           {
-            templateNames = getTemplateArgumentsInName(formalArgs,usedName);
-            delTempNames=TRUE;
+            formTemplateNames = getTemplateArgumentsInName(formalArgs,usedName);
           }
           BaseInfo bi(usedName,Public,Normal);
-          findClassRelation(root,context,instanceCd,&bi,templateNames,TemplateInstances,isArtificial);
+          findClassRelation(root,context,instanceCd,&bi,formTemplateNames,TemplateInstances,isArtificial);
 
           for (const Argument &arg : masterCd->templateArguments())
           {
@@ -4056,11 +4002,6 @@ static void findUsedClassesForClass(const Entry *root,
               }
             }
           }
-          if (delTempNames)
-          {
-            delete templateNames;
-            templateNames=0;
-          }
         }
         if (!found && !type.isEmpty()) // used class is not documented in any scope
         {
@@ -4111,7 +4052,7 @@ static void findBaseClassesForClass(
       FindBaseClassRelation_Mode mode,
       bool isArtificial,
       const std::unique_ptr<ArgumentList> &actualArgs = std::unique_ptr<ArgumentList>(),
-      QDict<int> *templateNames=0
+      const TemplateNameMap &templateNames=TemplateNameMap()
     )
 {
   // The base class could ofcouse also be a non-nested class
@@ -4120,11 +4061,10 @@ static void findBaseClassesForClass(
   {
     //printf("masterCd=%s bi.name='%s' #actualArgs=%d\n",
     //    masterCd->localName().data(),bi.name.data(),actualArgs ? (int)actualArgs->size() : -1);
-    bool delTempNames=FALSE;
-    if (templateNames==0)
+    TemplateNameMap formTemplateNames;
+    if (templateNames.empty())
     {
-      templateNames = getTemplateArgumentsInName(formalArgs,bi.name);
-      delTempNames=TRUE;
+      formTemplateNames = getTemplateArgumentsInName(formalArgs,bi.name);
     }
     BaseInfo tbi = bi;
     tbi.name = substituteTemplateArgumentsInString(bi.name,formalArgs,actualArgs);
@@ -4133,7 +4073,7 @@ static void findBaseClassesForClass(
     if (mode==DocumentedOnly)
     {
       // find a documented base class in the correct scope
-      if (!findClassRelation(root,context,instanceCd,&tbi,templateNames,DocumentedOnly,isArtificial))
+      if (!findClassRelation(root,context,instanceCd,&tbi,formTemplateNames,DocumentedOnly,isArtificial))
       {
         // 1.8.2: decided to show inheritance relations even if not documented,
         //        we do make them artificial, so they do not appear in the index
@@ -4141,18 +4081,13 @@ static void findBaseClassesForClass(
         bool b = Config_getBool(HIDE_UNDOC_RELATIONS) ? TRUE : isArtificial;
         //{
           // no documented base class -> try to find an undocumented one
-          findClassRelation(root,context,instanceCd,&tbi,templateNames,Undocumented,b);
+          findClassRelation(root,context,instanceCd,&tbi,formTemplateNames,Undocumented,b);
         //}
       }
     }
     else if (mode==TemplateInstances)
     {
-      findClassRelation(root,context,instanceCd,&tbi,templateNames,TemplateInstances,isArtificial);
-    }
-    if (delTempNames)
-    {
-      delete templateNames;
-      templateNames=0;
+      findClassRelation(root,context,instanceCd,&tbi,formTemplateNames,TemplateInstances,isArtificial);
     }
   }
 }
@@ -4162,21 +4097,16 @@ static void findBaseClassesForClass(
 static void findTemplateInstanceRelation(const Entry *root,
             Definition *context,
             ClassDefMutable *templateClass,const QCString &templSpec,
-            QDict<int> *templateNames,
+            const TemplateNameMap &templateNames,
             bool isArtificial)
 {
   Debug::print(Debug::Classes,0,"    derived from template %s with parameters %s isArtificial=%d\n",
          qPrint(templateClass->name()),qPrint(templSpec),isArtificial);
   //printf("findTemplateInstanceRelation(base=%s templSpec=%s templateNames=",
   //    templateClass->name().data(),templSpec.data());
-  //if (templateNames)
+  //for (const auto &kv : templNames)
   //{
-  //  QDictIterator<int> qdi(*templateNames);
-  //  int *tempArgIndex;
-  //  for (;(tempArgIndex=qdi.current());++qdi)
-  //  {
-  //    printf("(%s->%d) ",qdi.currentKey(),*tempArgIndex);
-  //  }
+  //  printf("(%s->%d) ",kv.first.c_str(),kv.second);
   //}
   //printf("\n");
 
@@ -4191,10 +4121,7 @@ static void findTemplateInstanceRelation(const Entry *root,
                      root->fileName,root->startLine,root->startColumn,templSpec,freshInstance));
   if (instanceClass)
   {
-    if (isArtificial)
-    {
-      instanceClass->setArtificial(TRUE);
-    }
+    instanceClass->setArtificial(TRUE);
     instanceClass->setLanguage(root->lang);
 
     if (freshInstance)
@@ -4354,21 +4281,16 @@ static bool findClassRelation(
                            Definition *context,
                            ClassDefMutable *cd,
                            const BaseInfo *bi,
-                           QDict<int> *templateNames,
+                           const TemplateNameMap &templateNames,
                            FindBaseClassRelation_Mode mode,
                            bool isArtificial
                           )
 {
   //printf("findClassRelation(class=%s base=%s templateNames=",
   //    cd->name().data(),bi->name.data());
-  //if (templateNames)
+  //for (const auto &kv : templateNames)
   //{
-  //  QDictIterator<int> qdi(*templateNames);
-  //  int *tempArgIndex;
-  //  for (;(tempArgIndex=qdi.current());++qdi)
-  //  {
-  //    printf("(%s->%d) ",qdi.currentKey(),*tempArgIndex);
-  //  }
+  //  printf("(%s->%d) ",kv.first.c_str(),kv.second);
   //}
   //printf("\n");
 
@@ -4519,7 +4441,7 @@ static bool findClassRelation(
             found = baseClass!=0 && baseClass!=cd;
           }
         }
-        bool isATemplateArgument = templateNames!=0 && templateNames->find(biName)!=0;
+        bool isATemplateArgument = templateNames.find(biName.str())!=templateNames.end();
         // make templSpec canonical
         // warning: the following line doesn't work for Mixin classes (see bug 560623)
         // templSpec = getCanonicalTemplateSpec(cd, cd->getFileDef(), templSpec);
@@ -4843,19 +4765,16 @@ static void computeTemplateClassRelations()
     bName=stripTemplateSpecifiersFromScope(bName);
     ClassDefMutable *cd=getClassMutable(bName);
     // strip any anonymous scopes first
-    QDict<ClassDef> *templInstances = 0;
-    if (cd && (templInstances=cd->getTemplateInstances()))
+    if (cd && !cd->getTemplateInstances().empty())
     {
       Debug::print(Debug::Classes,0,"  Template class %s : \n",qPrint(cd->name()));
-      QDictIterator<ClassDef> tdi(*templInstances);
-      ClassDef *itcd;
-      for (tdi.toFirst();(itcd=tdi.current());++tdi) // for each template instance
+      for (const auto &ti : cd->getTemplateInstances()) // for each template instance
       {
-        ClassDefMutable *tcd=toClassDefMutable(itcd);
+        ClassDefMutable *tcd=toClassDefMutable(ti.classDef);
         if (tcd)
         {
           Debug::print(Debug::Classes,0,"    Template instance %s : \n",qPrint(tcd->name()));
-          QCString templSpec = tdi.currentKey();
+          QCString templSpec = ti.templSpec;
           std::unique_ptr<ArgumentList> templArgs = stringToArgumentList(tcd->getLanguage(),templSpec);
           for (const BaseInfo &bi : root->extends)
           {
@@ -4864,16 +4783,14 @@ static void computeTemplateClassRelations()
             const ArgumentList &tl = cd->templateArguments();
             if (!tl.empty())
             {
-              QDict<int> *baseClassNames = tcd->getTemplateBaseClassNames();
-              QDict<int> *templateNames = getTemplateArgumentsInName(tl,bi.name);
+              TemplateNameMap baseClassNames = tcd->getTemplateBaseClassNames();
+              TemplateNameMap templateNames = getTemplateArgumentsInName(tl,bi.name);
               // for each template name that we inherit from we need to
               // substitute the formal with the actual arguments
-              QDict<int> *actualTemplateNames = new QDict<int>(17);
-              actualTemplateNames->setAutoDelete(TRUE);
-              QDictIterator<int> qdi(*templateNames);
-              for (qdi.toFirst();qdi.current();++qdi)
+              TemplateNameMap actualTemplateNames;
+              for (const auto &tn_kv : templateNames)
               {
-                int templIndex = *qdi.current();
+                int templIndex = tn_kv.second;
                 Argument actArg;
                 bool hasActArg=FALSE;
                 if (templIndex<(int)templArgs->size())
@@ -4882,15 +4799,13 @@ static void computeTemplateClassRelations()
                   hasActArg=TRUE;
                 }
                 if (hasActArg &&
-                    baseClassNames!=0 &&
-                    baseClassNames->find(actArg.type)!=0 &&
-                    actualTemplateNames->find(actArg.type)==0
+                    baseClassNames.find(actArg.type.str())!=baseClassNames.end() &&
+                    actualTemplateNames.find(actArg.type.str())==actualTemplateNames.end()
                    )
                 {
-                  actualTemplateNames->insert(actArg.type,new int(templIndex));
+                  actualTemplateNames.insert(std::make_pair(actArg.type.str(),templIndex));
                 }
               }
-              delete templateNames;
 
               tbi.name = substituteTemplateArgumentsInString(bi.name,tl,templArgs);
               // find a documented base class in the correct scope
@@ -4899,7 +4814,6 @@ static void computeTemplateClassRelations()
                 // no documented base class -> try to find an undocumented one
                 findClassRelation(root,cd,tcd,&tbi,actualTemplateNames,Undocumented,TRUE);
               }
-              delete actualTemplateNames;
             }
           }
         }
@@ -6783,7 +6697,7 @@ static void filterMemberDocumentation(const Entry *root,const QCString relates)
       ||
       (root->section==Entry::VARIABLE_SEC &&  // variable
        !type.isEmpty() &&                // with a type
-       g_compoundKeywordDict.find(type)==0 // that is not a keyword
+       g_compoundKeywords.find(type.str())==g_compoundKeywords.end() // that is not a keyword
        // (to skip forward declaration of class etc.)
       )
      )
@@ -7456,17 +7370,11 @@ static void findDEV(const MemberNameLinkedMap &mnsd)
       MemberDefMutable *md = toMemberDefMutable(imd.get());
       if (md && md->isEnumerate()) // member is an enum
       {
-        const MemberList *fmdl = md->enumFieldList();
         int documentedEnumValues=0;
-        if (fmdl) // enum has values
+        // for each enum value
+        for (const auto &fmd : md->enumFieldList())
         {
-          MemberListIterator fmni(*fmdl);
-          MemberDef *fmd;
-          // for each enum value
-          for (fmni.toFirst();(fmd=fmni.current());++fmni)
-          {
-            if (fmd->isLinkableInProject()) documentedEnumValues++;
-          }
+          if (fmd->isLinkableInProject()) documentedEnumValues++;
         }
         // at least one enum value is documented
         if (documentedEnumValues>0) md->setDocumentedEnumValues(TRUE);
@@ -7602,10 +7510,8 @@ static void computeMemberRelations()
                    )
                 {
                   //printf("match!\n");
-                  MemberDef *rmd;
-                  if ((rmd=md->reimplements())==0 ||
-                      minClassDistance(mcd,bmcd)<minClassDistance(mcd,rmd->getClassDef())
-                     )
+                  const MemberDef *rmd = md->reimplements();
+                  if (rmd==0 || minClassDistance(mcd,bmcd)<minClassDistance(mcd,rmd->getClassDef()))
                   {
                     //printf("setting (new) reimplements member\n");
                     md->setReimplements(bmd);
@@ -7634,19 +7540,12 @@ static void createTemplateInstanceMembers()
   for (const auto &cd : *Doxygen::classLinkedMap)
   {
     // that is a template
-    QDict<ClassDef> *templInstances = cd->getTemplateInstances();
-    if (templInstances)
+    for (const auto &ti : cd->getTemplateInstances())
     {
-      QDictIterator<ClassDef> qdi(*templInstances);
-      ClassDef *tcd=0;
-      // for each instance of the template
-      for (qdi.toFirst();(tcd=qdi.current());++qdi)
+      ClassDefMutable *tcdm = toClassDefMutable(ti.classDef);
+      if (tcdm)
       {
-        ClassDefMutable *tcdm = toClassDefMutable(tcd);
-        if (tcdm)
-        {
-          tcdm->addMembersToTemplateInstance(cd.get(),cd->templateArguments(),qdi.currentKey());
-        }
+        tcdm->addMembersToTemplateInstance(cd.get(),cd->templateArguments(),ti.templSpec);
       }
     }
   }
@@ -8194,7 +8093,7 @@ static void inheritDocumentation()
       //printf("%04d Member '%s'\n",count++,md->qualifiedName().data());
       if (md && md->documentation().isEmpty() && md->briefDescription().isEmpty())
       { // no documentation yet
-        MemberDef *bmd = md->reimplements();
+        const MemberDef *bmd = md->reimplements();
         while (bmd && bmd->documentation().isEmpty() &&
                       bmd->briefDescription().isEmpty()
               )
@@ -8993,23 +8892,6 @@ static void generateGroupDocs()
 }
 
 //----------------------------------------------------------------------------
-
-//static void generatePackageDocs()
-//{
-//  writePackageIndex(*g_outputList);
-//
-//  if (Doxygen::packageDict.count()>0)
-//  {
-//    PackageSDict::Iterator pdi(Doxygen::packageDict);
-//    PackageDef *pd;
-//    for (pdi.toFirst();(pd=pdi.current());++pdi)
-//    {
-//      pd->writeDocumentation(*g_outputList);
-//    }
-//  }
-//}
-
-//----------------------------------------------------------------------------
 // generate module pages
 
 static void generateNamespaceClassDocs(const ClassLinkedRefMap &classList)
@@ -9169,7 +9051,8 @@ static void readTagFile(const std::shared_ptr<Entry> &root,const char *tl)
     destName = tagLine.right(tagLine.length()-eqPos-1).stripWhiteSpace();
     if (fileName.isEmpty() || destName.isEmpty()) return;
     QFileInfo fi(fileName);
-    Doxygen::tagDestinationDict.insert(fi.absFilePath().utf8(),new QCString(destName));
+    Doxygen::tagDestinationMap.insert(
+        std::make_pair(fi.absFilePath().utf8().str(), destName.str()));
     //printf("insert tagDestination %s->%s\n",fi.fileName().data(),destName.data());
   }
   else
@@ -9691,8 +9574,8 @@ static QCString resolveSymlink(QCString path)
   int sepPos=0;
   int oldPos=0;
   QFileInfo fi;
-  QDict<void> nonSymlinks;
-  QDict<void> known;
+  StringSet nonSymlinks;
+  StringSet known;
   QCString result = path;
   QCString oldPrefix = "/";
   do
@@ -9707,7 +9590,7 @@ static QCString resolveSymlink(QCString path)
     sepPos = result.find('/',sepPos+1);
 #endif
     QCString prefix = sepPos==-1 ? result : result.left(sepPos);
-    if (nonSymlinks.find(prefix)==0)
+    if (nonSymlinks.find(prefix.str())==nonSymlinks.end())
     {
       fi.setFile(prefix);
       if (fi.isSymLink())
@@ -9728,8 +9611,8 @@ static QCString resolveSymlink(QCString path)
         }
         result = QDir::cleanDirPath(target).data();
         sepPos = 0;
-        if (known.find(result)) return QCString(); // recursive symlink!
-        known.insert(result,(void*)0x8);
+        if (known.find(result.str())!=known.end()) return QCString(); // recursive symlink!
+        known.insert(result.str());
         if (isRelative)
         {
           sepPos = oldPos;
@@ -9742,7 +9625,7 @@ static QCString resolveSymlink(QCString path)
       }
       else
       {
-        nonSymlinks.insert(prefix,(void*)0x8);
+        nonSymlinks.insert(prefix.str());
         oldPrefix = prefix;
       }
       oldPos = sepPos;
@@ -9943,11 +9826,9 @@ int readFileOrDirectory(const char *s,
 
 static void expandAliases()
 {
-  QDictIterator<QCString> adi(Doxygen::aliasDict);
-  QCString *s;
-  for (adi.toFirst();(s=adi.current());++adi)
+  for (auto &kv : Doxygen::aliasMap)
   {
-    *s = expandAlias(adi.currentKey(),*s);
+    kv.second = expandAlias(kv.first,kv.second);
   }
 }
 
@@ -9955,11 +9836,10 @@ static void expandAliases()
 
 static void escapeAliases()
 {
-  QDictIterator<QCString> adi(Doxygen::aliasDict);
-  QCString *s;
-  for (adi.toFirst();(s=adi.current());++adi)
+  for (auto &kv : Doxygen::aliasMap)
   {
-    QCString value=*s,newValue;
+    QCString value=kv.second;
+    QCString newValue;
     int in,p=0;
     // for each \n in the alias command value
     while ((in=value.find("\\n",p))!=-1)
@@ -9982,7 +9862,6 @@ static void escapeAliases()
       p=in+2;
     }
     newValue+=value.mid(p,value.length()-p);
-    *s=newValue;
     p = 0;
     newValue = "";
     while ((in=value.find("^^",p))!=-1)
@@ -9992,7 +9871,7 @@ static void escapeAliases()
       p=in+2;
     }
     newValue+=value.mid(p,value.length()-p);
-    *s=newValue;
+    kv.second=newValue.str();
     //printf("Alias %s has value %s\n",adi.currentKey().data(),s->data());
   }
 }
@@ -10002,30 +9881,26 @@ static void escapeAliases()
 void readAliases()
 {
   // add aliases to a dictionary
-  Doxygen::aliasDict.setAutoDelete(TRUE);
   const StringVector &aliasList = Config_getList(ALIASES);
-  for (const auto &s : aliasList)
+  for (const auto &al : aliasList)
   {
-    QCString alias=s.c_str();
-    if (Doxygen::aliasDict[alias]==0)
+    QCString alias = al;
+    int i=alias.find('=');
+    if (i>0)
     {
-      int i=alias.find('=');
-      if (i>0)
+      QCString name=alias.left(i).stripWhiteSpace();
+      QCString value=alias.right(alias.length()-i-1);
+      //printf("Alias: found name='%s' value='%s'\n",name.data(),value.data());
+      if (!name.isEmpty())
       {
-        QCString name=alias.left(i).stripWhiteSpace();
-        QCString value=alias.right(alias.length()-i-1);
-        //printf("Alias: found name='%s' value='%s'\n",name.data(),value.data());
-        if (!name.isEmpty())
+        auto it = Doxygen::aliasMap.find(name.str());
+        if (it==Doxygen::aliasMap.end()) // insert new alias
         {
-          QCString *dn=Doxygen::aliasDict[name];
-          if (dn==0) // insert new alias
-          {
-            Doxygen::aliasDict.insert(name,new QCString(value));
-          }
-          else // overwrite previous alias
-          {
-            *dn=value;
-          }
+          Doxygen::aliasMap.insert(std::make_pair(name.str(),value.str()));
+        }
+        else // overwrite previous alias
+        {
+          it->second=value.str();
         }
       }
     }
@@ -10088,7 +9963,7 @@ static void devUsage()
 
 static void usage(const char *name,const char *versionString)
 {
-  msg("Doxygen version %s\nCopyright Dimitri van Heesch 1997-2019\n\n",versionString);
+  msg("Doxygen version %s\nCopyright Dimitri van Heesch 1997-2021\n\n",versionString);
   msg("You can use doxygen in a number of ways:\n\n");
   msg("1) Use doxygen to generate a template configuration file:\n");
   msg("    %s [-s] -g [configName]\n\n",name);
@@ -10203,7 +10078,7 @@ void initDoxygen()
   Doxygen::dirLinkedMap = new DirLinkedMap;
   Doxygen::pageLinkedMap = new PageLinkedMap;          // all doc pages
   Doxygen::exampleLinkedMap = new PageLinkedMap;       // all examples
-  Doxygen::tagDestinationDict.setAutoDelete(TRUE);
+  //Doxygen::tagDestinationDict.setAutoDelete(TRUE);
   Doxygen::indexList = new IndexList;
 
   // initialisation of these globals depends on
@@ -10221,13 +10096,13 @@ void initDoxygen()
    *            Initialize some global constants
    **************************************************************************/
 
-  g_compoundKeywordDict.insert("template class",(void *)8);
-  g_compoundKeywordDict.insert("template struct",(void *)8);
-  g_compoundKeywordDict.insert("class",(void *)8);
-  g_compoundKeywordDict.insert("struct",(void *)8);
-  g_compoundKeywordDict.insert("union",(void *)8);
-  g_compoundKeywordDict.insert("interface",(void *)8);
-  g_compoundKeywordDict.insert("exception",(void *)8);
+  g_compoundKeywords.insert("template class");
+  g_compoundKeywords.insert("template struct");
+  g_compoundKeywords.insert("class");
+  g_compoundKeywords.insert("struct");
+  g_compoundKeywords.insert("union");
+  g_compoundKeywords.insert("interface");
+  g_compoundKeywords.insert("exception");
 }
 
 void cleanUpDoxygen()
@@ -11339,7 +11214,6 @@ void parseInput()
   g_s.begin("Building file list...\n");
   buildFileList(root.get());
   g_s.end();
-  //generateFileTree();
 
   g_s.begin("Building class list...\n");
   buildClassList(root.get());
@@ -11692,11 +11566,11 @@ void generateOutput()
     bool generateQhp         = Config_getBool(GENERATE_QHP);
     bool generateTreeView    = Config_getBool(GENERATE_TREEVIEW);
     bool generateDocSet      = Config_getBool(GENERATE_DOCSET);
-    if (generateEclipseHelp) Doxygen::indexList->addIndex(new EclipseHelp);
-    if (generateHtmlHelp)    Doxygen::indexList->addIndex(new HtmlHelp);
-    if (generateQhp)         Doxygen::indexList->addIndex(new Qhp);
-    if (generateTreeView)    Doxygen::indexList->addIndex(new FTVHelp(TRUE));
-    if (generateDocSet)      Doxygen::indexList->addIndex(new DocSets);
+    if (generateEclipseHelp) Doxygen::indexList->addIndex<EclipseHelp>();
+    if (generateHtmlHelp)    Doxygen::indexList->addIndex<HtmlHelp>();
+    if (generateQhp)         Doxygen::indexList->addIndex<Qhp>();
+    if (generateTreeView)    Doxygen::indexList->addIndex<FTVHelp>(TRUE);
+    if (generateDocSet)      Doxygen::indexList->addIndex<DocSets>();
     Doxygen::indexList->initialize();
     HtmlGenerator::writeTabData();
   }
@@ -11916,7 +11790,7 @@ void generateOutput()
   warn_flush();
 
   g_s.begin("Running plantuml with JAVA...\n");
-  PlantumlManager::instance()->run();
+  PlantumlManager::instance().run();
   g_s.end();
 
   warn_flush();
@@ -12006,7 +11880,7 @@ void generateOutput()
 
   if (Debug::isFlagSet(Debug::Time))
   {
-    msg("Total elapsed time: %.3f seconds\n(of which %.3f seconds waiting for external tools to finish)\n",
+    msg("Total elapsed time: %.6f seconds\n(of which %.6f seconds waiting for external tools to finish)\n",
          ((double)Debug::elapsedTime()),
          Portable::getSysElapsedTime()
         );

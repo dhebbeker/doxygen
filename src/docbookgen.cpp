@@ -20,7 +20,6 @@
 #include <qdir.h>
 #include <qfile.h>
 #include <qtextstream.h>
-#include <qintdict.h>
 #include <qregexp.h>
 #include "docbookgen.h"
 #include "doxygen.h"
@@ -256,13 +255,13 @@ void DocbookCodeGenerator::finish()
 }
 void DocbookCodeGenerator::startCodeFragment(const char *)
 {
-DB_GEN_C
+DB_GEN_C1(m_t)
   m_t << "<programlisting>";
 }
 
 void DocbookCodeGenerator::endCodeFragment(const char *)
 {
-DB_GEN_C
+DB_GEN_C1(m_t)
   //endCodeLine checks is there is still an open code line, if so closes it.
   endCodeLine();
 

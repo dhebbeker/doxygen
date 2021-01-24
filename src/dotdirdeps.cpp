@@ -23,6 +23,8 @@
 #include "doxygen.h"
 #include "config.h"
 
+using DirDefMap = std::map<std::string,const DirDef *>;
+
 /** Properties are used to format the directories in the graph distinctively. */
 struct DotDirProperty
 {
@@ -91,7 +93,7 @@ static std::string getDirectoryBorderStyle(const DotDirProperty &property)
  * @param[in,out] directoriesInGraph lists the directories which have been written to the output stream
  */
 static void drawDirectory(FTextStream &outStream, const DirDef *const directory, const DotDirProperty &property,
-    QDict<DirDef> &directoriesInGraph)
+    DirDefMap &directoriesInGraph)
 {
   outStream << "  " << directory->getOutputFileBase() << " ["
       "shape=box, "
@@ -101,7 +103,7 @@ static void drawDirectory(FTextStream &outStream, const DirDef *const directory,
       "color=\"" << getDirectoryBorderColor(property) << "\", "
       "URL=\"" << directory->getOutputFileBase() << Doxygen::htmlFileExtension << "\""
       "];\n";
-  directoriesInGraph.insert(directory->getOutputFileBase(), directory);
+  directoriesInGraph.insert(std::make_pair(directory->getOutputFileBase().str(), directory));
 }
 
 /** Checks, if the directory is a the maximum drawn directory level. */
@@ -117,7 +119,7 @@ static bool isAtLowerVisibilityBorder(const DirDef *const directory, const Direc
  * This is because the plain text node can be used to draw dependency relationships.
  */
 static void drawClusterOpening(FTextStream &outputStream, const DirDef *const directory,
-    const DotDirProperty &directoryProperty, QDict<DirDef> &directoriesInGraph, const bool isAncestor)
+    const DotDirProperty &directoryProperty, DirDefMap &directoriesInGraph, const bool isAncestor)
 {
   outputStream << "  subgraph cluster" << directory->getOutputFileBase() << " {\n"
       "    graph [ "
@@ -139,7 +141,7 @@ static void drawClusterOpening(FTextStream &outputStream, const DirDef *const di
     outputStream << "    " << directory->getOutputFileBase() << " [shape=plaintext, "
         "label=\"" << directory->shortName() << "\""
         "];\n";
-    directoriesInGraph.insert(directory->getOutputFileBase(), directory);
+    directoriesInGraph.insert(std::make_pair(directory->getOutputFileBase().str(), directory));
   }
 }
 
@@ -168,7 +170,7 @@ static auto getDependencies(const DirDef *const dependent, const bool isLeaf)
 
 /** Recursively draws directory tree. */
 static DirRelations drawTree(FTextStream &outputStream, const DirDef *const directory,
-    const DirectoryLevel startLevel, QDict<DirDef> &directoriesInGraph, const bool isTreeRoot)
+    const DirectoryLevel startLevel, DirDefMap &directoriesInGraph, const bool isTreeRoot)
 {
   DirRelations dependencies;
   if (!directory->isCluster())
@@ -225,9 +227,9 @@ static DirRelations drawTree(FTextStream &outputStream, const DirDef *const dire
  */
 void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
 {
-  QDict<DirDef> dirsInGraph(257);
+  DirDefMap dirsInGraph;
 
-  dirsInGraph.insert(dd->getOutputFileBase(),dd);
+  dirsInGraph.insert(std::make_pair(dd->getOutputFileBase().str(),dd));
 
   std::vector<const DirDef *> usedDirsNotDrawn, usedDirsDrawn;
   for(const auto& usedDir : dd->usedDirs())
@@ -302,7 +304,7 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
       const auto usedDir = udir->dir();
 
       const bool destIsSibling = std::find(std::begin(usedDirsDrawn), std::end(usedDirsDrawn), usedDir) != std::end(usedDirsDrawn);
-      const bool destIsDrawn = dirsInGraph.find(usedDir->getOutputFileBase()) != nullptr;
+      const bool destIsDrawn = dirsInGraph.find(usedDir->getOutputFileBase().str())!=dirsInGraph.end(); // only point to nodes that are in the graph
       const bool notInherited = !std::get<1>(relationTuple);
       const bool atVisibilityLimit = isAtLowerVisibilityBorder(usedDir, dd->level());
 
@@ -313,10 +315,10 @@ void writeDotDirDepGraph(FTextStream &t,const DirDef *dd,bool linkRelations)
         Doxygen::dirRelations.add(relationName,
             std::make_unique<DirRelation>(
                relationName,dir,udir));
-        int nrefs = udir->filePairs().count();
+        size_t nrefs = udir->filePairs().size();
         t << "  " << dir->getOutputFileBase() << "->"
           << usedDir->getOutputFileBase();
-        t << " [headlabel=\"" << nrefs << "\", labeldistance=1.5";
+        t << " [headlabel=\"" << (uint)nrefs << "\", labeldistance=1.5";
         if (linkRelations)
         {
           t << " headhref=\"" << relationName << Doxygen::htmlFileExtension << "\"";

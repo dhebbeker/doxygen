@@ -102,7 +102,7 @@ static QCString convertIndexWordToAnchor(const QCString &word)
   return result;
 }
 
-static bool mustBeOutsideParagraph(DocNode *n)
+static bool mustBeOutsideParagraph(const DocNode *n)
 {
   switch (n->kind())
   {
@@ -157,7 +157,7 @@ static bool mustBeOutsideParagraph(DocNode *n)
   return FALSE;
 }
 
-static bool isDocVerbatimVisible(DocVerbatim *s)
+static bool isDocVerbatimVisible(const DocVerbatim *s)
 {
   switch(s->type())
   {
@@ -172,7 +172,7 @@ static bool isDocVerbatimVisible(DocVerbatim *s)
   }
 }
 
-static bool isDocIncludeVisible(DocInclude *s)
+static bool isDocIncludeVisible(const DocInclude *s)
 {
   switch (s->type())
   {
@@ -188,7 +188,7 @@ static bool isDocIncludeVisible(DocInclude *s)
   }
 }
 
-static bool isDocIncOperatorVisible(DocIncOperator *s)
+static bool isDocIncOperatorVisible(const DocIncOperator *s)
 {
   switch (s->type())
   {
@@ -199,7 +199,7 @@ static bool isDocIncOperatorVisible(DocIncOperator *s)
   }
 }
 
-static bool isInvisibleNode(DocNode *node)
+static bool isInvisibleNode(const DocNode *node)
 {
   return (node->kind()==DocNode::Kind_WhiteSpace)
       || // skip over image nodes that are not for HTML output
@@ -213,30 +213,19 @@ static bool isInvisibleNode(DocNode *node)
       ;
 }
 
-static void mergeHtmlAttributes(const HtmlAttribList &attribs, HtmlAttribList *mergeInto)
+static void mergeHtmlAttributes(const HtmlAttribList &attribs, HtmlAttribList &mergeInto)
 {
-  HtmlAttribListIterator li(attribs);
-  HtmlAttrib *att;
-  for (li.toFirst();(att=li.current());++li)
+  for (const auto &att : attribs)
   {
-    HtmlAttribListIterator ml(*mergeInto);
-    HtmlAttrib *opt;
-    bool found = false;
-    for (ml.toFirst();(opt=ml.current());++ml)
+    auto it = std::find_if(mergeInto.begin(),mergeInto.end(),
+                           [&att](const auto &opt) { return opt.name==att.name; });
+    if (it!=mergeInto.end()) // attribute name already in mergeInto
     {
-      if (opt->name == att -> name)
-      {
-        found = true;
-        break;
-      }
+       it->value = it->value + " " + att.value;
     }
-    if (found)
+    else // attribute name not yet in mergeInto
     {
-       opt->value = opt->value + " " + att->value;
-    }
-    else
-    {
-      mergeInto->append(att);
+      mergeInto.push_back(att);
     }
   }
 }
@@ -244,31 +233,29 @@ static void mergeHtmlAttributes(const HtmlAttribList &attribs, HtmlAttribList *m
 static QCString htmlAttribsToString(const HtmlAttribList &attribs, QCString *pAltValue = 0)
 {
   QCString result;
-  HtmlAttribListIterator li(attribs);
-  HtmlAttrib *att;
-  for (li.toFirst();(att=li.current());++li)
+  for (const auto &att : attribs)
   {
-    if (!att->value.isEmpty())  // ignore attribute without values as they
+    if (!att.value.isEmpty())  // ignore attribute without values as they
                                 // are not XHTML compliant, with the exception
 				// of the alt attribute with the img tag
     {
-      if (att->name=="alt" && pAltValue) // optionally return the value of alt separately
+      if (att.name=="alt" && pAltValue) // optionally return the value of alt separately
                                          // need to convert <img> to <object> for SVG images,
                                          // which do not support the alt attribute
       {
-        *pAltValue = att->value;
+        *pAltValue = att.value;
       }
       else
       {
         result+=" ";
-        result+=att->name;
-        result+="=\""+convertToXML(att->value)+"\"";
+        result+=att.name;
+        result+="=\""+convertToXML(att.value)+"\"";
       }
     }
-    else if (att->name=="nowrap") // In XHTML, attribute minimization is forbidden, and the nowrap attribute must be defined as <td nowrap="nowrap">.
+    else if (att.name=="nowrap") // In XHTML, attribute minimization is forbidden, and the nowrap attribute must be defined as <td nowrap="nowrap">.
     {
         result+=" ";
-        result+=att->name;
+        result+=att.name;
         result+="=\"nowrap\"";
     }
   }
@@ -502,11 +489,9 @@ static void visitPostCaption(FTextStream &t, DocVerbatim *s)
 }
 
 
-static void visitCaption(HtmlDocVisitor *parent, QList<DocNode> children)
+static void visitCaption(HtmlDocVisitor *parent, DocNodeList &children)
 {
-  QListIterator<DocNode> cli(children);
-  DocNode *n;
-  for (cli.toFirst();(n=cli.current());++cli) n->accept(parent);
+  for (const auto &n : children) n->accept(parent);
 }
 
 void HtmlDocVisitor::visit(DocVerbatim *s)
@@ -642,7 +627,7 @@ void HtmlDocVisitor::visit(DocVerbatim *s)
         {
           format = PlantumlManager::PUML_SVG;
         }
-        QCString baseName = PlantumlManager::instance()->writePlantUMLSource(htmlOutput,s->exampleFile(),s->text(),format);
+        QCString baseName = PlantumlManager::instance().writePlantUMLSource(htmlOutput,s->exampleFile(),s->text(),format);
         m_t << "<div class=\"plantumlgraph\">" << endl;
         writePlantUMLFile(baseName,s->relPath(),s->context());
         visitPreCaption(m_t, s);
@@ -797,7 +782,7 @@ void HtmlDocVisitor::visit(DocIncOperator *op)
   {
     forceEndParagraph(op);
     if (!m_hide) m_ci.startCodeFragment("DoxyCode");
-    pushEnabled();
+    pushHidden(m_hide);
     m_hide=TRUE;
   }
   QCString locLangExt = getFileNameExtension(op->includeFileName());
@@ -805,7 +790,7 @@ void HtmlDocVisitor::visit(DocIncOperator *op)
   SrcLangExt langExt = getLanguageFromFileName(locLangExt);
   if (op->type()!=DocIncOperator::Skip)
   {
-    popEnabled();
+    m_hide = popHidden();
     if (!m_hide)
     {
       FileDef *fd = 0;
@@ -831,12 +816,12 @@ void HtmlDocVisitor::visit(DocIncOperator *op)
                                );
       if (fd) delete fd;
     }
-    pushEnabled();
+    pushHidden(m_hide);
     m_hide=TRUE;
   }
   if (op->isLast())
   {
-    popEnabled();
+    m_hide = popHidden();
     if (!m_hide) m_ci.endCodeFragment("DoxyCode");
     forceStartParagraph(op);
   }
@@ -1014,21 +999,22 @@ void HtmlDocVisitor::visitPost(DocAutoListItem *li)
 template<class T>
 bool isFirstChildNode(T *parent, DocNode *node)
 {
-   return parent->children().getFirst()==node;
+   return !parent->children().empty() && parent->children().front().get()==node;
 }
 
 template<class T>
 bool isLastChildNode(T *parent, DocNode *node)
 {
-   return parent->children().getLast()==node;
+   return !parent->children().empty() && parent->children().back().get()==node;
 }
 
 bool isSeparatedParagraph(DocSimpleSect *parent,DocPara *par)
 {
-  QList<DocNode> nodes = parent->children();
-  int i = nodes.findRef(par);
-  if (i==-1) return FALSE;
-  int count = parent->children().count();
+  const DocNodeList &nodes = parent->children();
+  auto it = std::find_if(nodes.begin(),nodes.end(),[par](const auto &n) { return n.get()==par; });
+  if (it==nodes.end()) return FALSE;
+  size_t i = it - nodes.begin();
+  size_t count = parent->children().size();
   if (count>1 && i==0) // first node
   {
     if (nodes.at(i+1)->kind()==DocNode::Kind_SimpleSectSep)
@@ -1244,16 +1230,16 @@ void HtmlDocVisitor::visitPre(DocPara *p)
   // the paragraph (<ul>,<dl>,<table>,..) then that will already started the
   // paragraph and we don't need to do it here
   bool paragraphAlreadyStarted = false;
-  uint nodeIndex = 0;
-  if (p && nodeIndex<p->children().count())
+  size_t nodeIndex = 0;
+  if (p && nodeIndex<p->children().size())
   {
-    while (nodeIndex<p->children().count() && isInvisibleNode(p->children().at(nodeIndex)))
+    while (nodeIndex<p->children().size() && isInvisibleNode(p->children().at(nodeIndex).get()))
     {
       nodeIndex++;
     }
-    if (nodeIndex<p->children().count())
+    if (nodeIndex<p->children().size())
     {
-      DocNode *n = p->children().at(nodeIndex);
+      const DocNode *n = p->children().at(nodeIndex).get();
       if (mustBeOutsideParagraph(n))
       {
         paragraphAlreadyStarted = true;
@@ -1316,16 +1302,16 @@ void HtmlDocVisitor::visitPost(DocPara *p)
   // if the last element of a paragraph is something that should be outside of
   // the paragraph (<ul>,<dl>,<table>) then that will already have ended the
   // paragraph and we don't need to do it here
-  int nodeIndex = p->children().count()-1;
-  if (nodeIndex>=0)
+  if (!p->children().empty())
   {
-    while (nodeIndex>=0 && isInvisibleNode(p->children().at(nodeIndex)))
+    int nodeIndex = static_cast<int>(p->children().size()-1);
+    while (nodeIndex>=0 && isInvisibleNode(p->children().at(nodeIndex).get()))
     {
       nodeIndex--;
     }
     if (nodeIndex>=0)
     {
-      DocNode *n = p->children().at(nodeIndex);
+      const DocNode *n = p->children().at(nodeIndex).get();
       if (mustBeOutsideParagraph(n))
       {
         needsTag = FALSE;
@@ -1727,10 +1713,10 @@ void HtmlDocVisitor::visitPre(DocImage *img)
       HtmlAttrib opt;
       opt.name  = "style";
       opt.value = "pointer-events: none;";
-      extraAttribs.append(&opt);
+      extraAttribs.push_back(opt);
     }
     QCString alt;
-    mergeHtmlAttributes(img->attribs(),&extraAttribs);
+    mergeHtmlAttributes(img->attribs(),extraAttribs);
     QCString attrs = htmlAttribsToString(extraAttribs,&alt);
     QCString src;
     if (url.isEmpty())
@@ -1785,7 +1771,7 @@ void HtmlDocVisitor::visitPre(DocImage *img)
   }
   else // other format -> skip
   {
-    pushEnabled();
+    pushHidden(m_hide);
     m_hide=TRUE;
   }
 }
@@ -1815,7 +1801,7 @@ void HtmlDocVisitor::visitPost(DocImage *img)
   }
   else // other format
   {
-    popEnabled();
+    m_hide = popHidden();
   }
 }
 
@@ -1941,25 +1927,6 @@ void HtmlDocVisitor::visitPost(DocSecRefList *s)
   forceStartParagraph(s);
 }
 
-//void HtmlDocVisitor::visitPre(DocLanguage *l)
-//{
-//  QCString langId = Config_getEnum(OUTPUT_LANGUAGE);
-//  if (l->id().lower()!=langId.lower())
-//  {
-//    pushEnabled();
-//    m_hide = TRUE;
-//  }
-//}
-//
-//void HtmlDocVisitor::visitPost(DocLanguage *l)
-//{
-//  QCString langId = Config_getEnum(OUTPUT_LANGUAGE);
-//  if (l->id().lower()!=langId.lower())
-//  {
-//    popEnabled();
-//  }
-//}
-
 void HtmlDocVisitor::visitPre(DocParamSect *s)
 {
   if (m_hide) return;
@@ -2037,41 +2004,35 @@ void HtmlDocVisitor::visitPre(DocParamList *pl)
   if (sect && sect->hasTypeSpecifier())
   {
     m_t << "<td class=\"paramtype\">";
-    QListIterator<DocNode> li(pl->paramTypes());
-    DocNode *type;
-    for (li.toFirst();(type=li.current());++li)
+    for (const auto &type : pl->paramTypes())
     {
       if (type->kind()==DocNode::Kind_Word)
       {
-        visit((DocWord*)type);
+        visit((DocWord*)type.get());
       }
       else if (type->kind()==DocNode::Kind_LinkedWord)
       {
-        visit((DocLinkedWord*)type);
+        visit((DocLinkedWord*)type.get());
       }
       else if (type->kind()==DocNode::Kind_Sep)
       {
-        m_t << "&#160;" << ((DocSeparator *)type)->chars() << "&#160;";
+        m_t << "&#160;" << ((DocSeparator *)type.get())->chars() << "&#160;";
       }
     }
     m_t << "</td>";
   }
   m_t << "<td class=\"paramname\">";
-  //QStrListIterator li(pl->parameters());
-  //const char *s;
-  QListIterator<DocNode> li(pl->parameters());
-  DocNode *param;
   bool first=TRUE;
-  for (li.toFirst();(param=li.current());++li)
+  for (const auto &param : pl->parameters())
   {
     if (!first) m_t << ","; else first=FALSE;
     if (param->kind()==DocNode::Kind_Word)
     {
-      visit((DocWord*)param);
+      visit((DocWord*)param.get());
     }
     else if (param->kind()==DocNode::Kind_LinkedWord)
     {
-      visit((DocLinkedWord*)param);
+      visit((DocLinkedWord*)param.get());
     }
   }
   m_t << "</td><td>";
@@ -2308,19 +2269,6 @@ void HtmlDocVisitor::endLink()
   m_t << "</a>";
 }
 
-void HtmlDocVisitor::pushEnabled()
-{
-  m_enabled.push(new bool(m_hide));
-}
-
-void HtmlDocVisitor::popEnabled()
-{
-  bool *v=m_enabled.pop();
-  ASSERT(v!=0);
-  m_hide = *v;
-  delete v;
-}
-
 void HtmlDocVisitor::writeDotFile(const QCString &fn,const QCString &relPath,
                                   const QCString &context)
 {
@@ -2403,7 +2351,7 @@ void HtmlDocVisitor::writePlantUMLFile(const QCString &fileName,
   QCString imgExt = getDotImageExtension();
   if (imgExt=="svg")
   {
-    PlantumlManager::instance()->generatePlantUMLOutput(fileName,outDir,PlantumlManager::PUML_SVG);
+    PlantumlManager::instance().generatePlantUMLOutput(fileName,outDir,PlantumlManager::PUML_SVG);
     //m_t << "<iframe scrolling=\"no\" frameborder=\"0\" src=\"" << relPath << baseName << ".svg" << "\" />" << endl;
     //m_t << "<p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p>";
     //m_t << "</iframe>" << endl;
@@ -2411,7 +2359,7 @@ void HtmlDocVisitor::writePlantUMLFile(const QCString &fileName,
   }
   else
   {
-    PlantumlManager::instance()->generatePlantUMLOutput(fileName,outDir,PlantumlManager::PUML_BITMAP);
+    PlantumlManager::instance().generatePlantUMLOutput(fileName,outDir,PlantumlManager::PUML_BITMAP);
     m_t << "<img src=\"" << relPath << baseName << ".png" << "\" />" << endl;
   }
 }
@@ -2428,7 +2376,7 @@ static bool insideStyleChangeThatIsOutsideParagraph(DocPara *para,int nodeIndex)
   bool styleOutsideParagraph=FALSE;
   while (nodeIndex>=0 && !styleOutsideParagraph)
   {
-    DocNode *n = para->children().at(nodeIndex);
+    DocNode *n = para->children().at(nodeIndex).get();
     if (n->kind()==DocNode::Kind_StyleChange)
     {
       DocStyleChange *sc = (DocStyleChange*)n;
@@ -2462,15 +2410,18 @@ void HtmlDocVisitor::forceEndParagraph(DocNode *n)
   if (n->parent() && n->parent()->kind()==DocNode::Kind_Para)
   {
     DocPara *para = (DocPara*)n->parent();
-    int nodeIndex = para->children().findRef(n);
+    const DocNodeList &children = para->children();
+    auto it = std::find_if(children.begin(),children.end(),[n](const auto &np) { return np.get()==n; });
+    if (it==children.end()) return;
+    int nodeIndex = it - children.begin();
     nodeIndex--;
     if (nodeIndex<0) return; // first node in paragraph
-    while (nodeIndex>=0 && isInvisibleNode(para->children().at(nodeIndex)))
+    while (nodeIndex>=0 && isInvisibleNode(children.at(nodeIndex).get()))
     {
-        nodeIndex--;
+      nodeIndex--;
     }
     if (nodeIndex<0) return; // first visible node in paragraph
-    n = para->children().at(nodeIndex);
+    n = children.at(nodeIndex).get();
     if (mustBeOutsideParagraph(n)) return; // previous node already outside paragraph context
     nodeIndex--;
     bool styleOutsideParagraph=insideStyleChangeThatIsOutsideParagraph(para,nodeIndex);
@@ -2495,19 +2446,22 @@ void HtmlDocVisitor::forceStartParagraph(DocNode *n)
   if (n->parent() && n->parent()->kind()==DocNode::Kind_Para) // if we are inside a paragraph
   {
     DocPara *para = (DocPara*)n->parent();
-    int nodeIndex = para->children().findRef(n);
-    int numNodes  = para->children().count();
+    const DocNodeList &children = para->children();
+    auto it = std::find_if(children.begin(),children.end(),[n](const auto &np) { return np.get()==n; });
+    if (it==children.end()) return;
+    int nodeIndex = it - children.begin();
+    int numNodes  = static_cast<int>(para->children().size());
     bool styleOutsideParagraph=insideStyleChangeThatIsOutsideParagraph(para,nodeIndex);
     if (styleOutsideParagraph) return;
     nodeIndex++;
     if (nodeIndex==numNodes) return; // last node
-    while (nodeIndex<numNodes && isInvisibleNode(para->children().at(nodeIndex)))
+    while (nodeIndex<numNodes && isInvisibleNode(para->children().at(nodeIndex).get()))
     {
       nodeIndex++;
     }
     if (nodeIndex<numNodes)
     {
-      n = para->children().at(nodeIndex);
+      n = para->children().at(nodeIndex).get();
       if (mustBeOutsideParagraph(n)) return; // next element also outside paragraph
     }
     else
